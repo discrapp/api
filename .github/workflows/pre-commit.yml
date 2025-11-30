@@ -10,3 +10,4 @@ permissions: read-all
 jobs:
   pre-commit:
     uses: "Mosher-Labs/.github/.github/workflows/pre-commit.yml@main"
+    secrets: inherit
