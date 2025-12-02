@@ -32,3 +32,10 @@ yarn-error.log*
 
 # Typescript
 *.tsbuildinfo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Drizzle
+drizzle/

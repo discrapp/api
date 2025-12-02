@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   pre-commit:
-    uses: "Mosher-Labs/.github/.github/workflows/pre-commit.yml@main"
+    uses: 'Mosher-Labs/.github/.github/workflows/pre-commit.yml@main'
     secrets: inherit
     permissions:
       contents: read
