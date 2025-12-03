@@ -1,7 +1,7 @@
 ---
 on:
   schedule:
-    - cron: "21 6 * * *"
+    - cron: '21 6 * * *'
 
 permissions:
   issues: write
@@ -9,4 +9,4 @@ permissions:
 
 jobs:
   stale:
-    uses: "Mosher-Labs/.github/.github/workflows/stale.yml@main"
+    uses: 'appdiscr/.github/.github/workflows/stale.yml@main'

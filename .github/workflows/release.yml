@@ -10,8 +10,15 @@ on:
 permissions: read-all
 
 jobs:
+  test:
+    uses: 'appdiscr/.github/.github/workflows/test.yml@main'
+    permissions:
+      contents: read
+      pull-requests: write
+
   release:
-    uses: "appdiscr/.github/.github/workflows/release.yml@main"
+    needs: test
+    uses: 'appdiscr/.github/.github/workflows/release.yml@main'
     secrets: inherit
     permissions:
       contents: write

@@ -1,0 +1,40 @@
+{
+  "name": "@discr/api",
+  "version": "0.0.0",
+  "description": "Discr API - Database schema and backend services",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint . && prettier --check .",
+    "lint:fix": "eslint --fix . && prettier --write .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "keywords": [
+    "discr",
+    "api",
+    "drizzle",
+    "supabase"
+  ],
+  "author": "Discr Team",
+  "license": "SEE LICENSE IN LICENSE",
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^22.10.1",
+    "@vitest/coverage-v8": "^2.1.8",
+    "drizzle-kit": "^0.30.0",
+    "eslint": "^9.39.1",
+    "prettier": "^3.7.3",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.48.1",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.38.3",
+    "postgres": "^3.4.5"
+  }
+}
