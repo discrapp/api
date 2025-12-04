@@ -11,7 +11,7 @@ permissions: read-all
 
 jobs:
   test:
-    uses: 'appdiscr/.github/.github/workflows/test.yml@main'
+    uses: "appdiscr/.github/.github/workflows/test.yml@main"
     permissions:
       contents: read
       pull-requests: write
@@ -60,7 +60,7 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-          supabase db push --dry-run
+          supabase db push --dry-run --include-all
 
   migrate:
     name: Run Database Migrations
@@ -107,7 +107,7 @@ jobs:
 
   release:
     needs: [migrate, deploy-functions]
-    uses: 'appdiscr/.github/.github/workflows/release.yml@main'
+    uses: "appdiscr/.github/.github/workflows/release.yml@main"
     secrets: inherit
     permissions:
       contents: write
