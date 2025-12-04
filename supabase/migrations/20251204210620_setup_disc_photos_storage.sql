@@ -9,8 +9,8 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Enable RLS on storage.objects
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+-- Note: RLS is already enabled on storage.objects by default in Supabase
+-- No need to enable it manually
 
 -- Policy: Users can upload photos to their own folder
 -- Path structure: {user_id}/{disc_id}/{photo_type}.jpg
