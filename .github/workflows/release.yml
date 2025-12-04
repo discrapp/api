@@ -16,9 +16,33 @@ jobs:
       contents: read
       pull-requests: write
 
+  check-edge-functions:
+    name: Type Check Edge Functions
+    needs: test
+    runs-on: ubuntu-latest
+    # TODO: When we have 2+ edge functions, upgrade to full integration tests:
+    # - Run: supabase start
+    # - Run: deno test --allow-all supabase/functions/**/index.test.ts
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Type check edge functions
+        run: |
+          if [ -d "supabase/functions" ]; then
+            deno check supabase/functions/**/index.ts
+          else
+            echo "No edge functions to check"
+          fi
+
   migrate:
     name: Run Database Migrations
-    needs: test
+    needs: [test, check-edge-functions]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
