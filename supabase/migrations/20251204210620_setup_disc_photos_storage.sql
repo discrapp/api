@@ -65,12 +65,5 @@ USING (
 -- TODO: Add policy for finders to read photos of discs in active recovery events
 -- This will be implemented when recovery events feature is added
 
--- Add comments
-COMMENT ON POLICY "Users can upload own disc photos" ON storage.objects IS
-  'Users can upload photos to their own folder with path: {user_id}/{disc_id}/{photo_type}';
-COMMENT ON POLICY "Users can read own disc photos" ON storage.objects IS
-  'Users can read photos from their own folder';
-COMMENT ON POLICY "Users can update own disc photos" ON storage.objects IS
-  'Users can update photos in their own folder';
-COMMENT ON POLICY "Users can delete own disc photos" ON storage.objects IS
-  'Users can delete photos from their own folder';
+-- Note: Cannot add comments to storage.objects policies (system table, permission denied)
+-- Policy descriptions are in the SQL comments above each policy
