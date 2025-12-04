@@ -4,6 +4,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    exclude: [
+      'node_modules/**',
+      'supabase/functions/**', // Deno edge function tests
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'json-summary', 'html', 'lcov'],
@@ -24,6 +28,7 @@ export default defineConfig({
         'tests/**',
         'src/schema/index.ts',
         'src/db/index.ts',
+        'supabase/functions/**', // Deno edge function tests
       ],
     },
   },
