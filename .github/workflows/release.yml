@@ -84,8 +84,29 @@ jobs:
           supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
           supabase db push
 
+  deploy-functions:
+    name: Deploy Edge Functions
+    needs: [test, check-edge-functions]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy edge functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          supabase functions deploy --no-verify-jwt
+
   release:
-    needs: migrate
+    needs: [migrate, deploy-functions]
     uses: 'appdiscr/.github/.github/workflows/release.yml@main'
     secrets: inherit
     permissions:
