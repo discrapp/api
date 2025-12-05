@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const VALID_PHOTO_TYPES = ['top', 'bottom', 'side'];
+const VALID_PHOTO_TYPES = ['photo-1', 'photo-2', 'photo-3', 'photo-4'];
 
 Deno.serve(async (req) => {
   // Only allow POST requests
@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
   }
 
   if (!photoType || !VALID_PHOTO_TYPES.includes(photoType)) {
-    return new Response(JSON.stringify({ error: 'photo_type must be one of: top, bottom, side' }), {
+    return new Response(JSON.stringify({ error: 'photo_type must be one of: photo-1, photo-2, photo-3, photo-4' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
