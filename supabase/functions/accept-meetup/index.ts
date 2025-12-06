@@ -124,13 +124,18 @@ Deno.serve(async (req) => {
   }
 
   // Get disc owner from the nested relationship
-  const recoveryEvent = proposal.recovery_event as {
-    id: string;
-    disc_id: string;
-    finder_id: string;
-    status: string;
-    disc: { owner_id: string }[] | null;
-  } | null;
+  // Supabase returns nested FK relationships as arrays
+  const recoveryEventData = proposal.recovery_event as unknown as
+    | {
+        id: string;
+        disc_id: string;
+        finder_id: string;
+        status: string;
+        disc: { owner_id: string }[] | null;
+      }[]
+    | null;
+
+  const recoveryEvent = Array.isArray(recoveryEventData) ? recoveryEventData[0] : recoveryEventData;
 
   if (!recoveryEvent) {
     return new Response(JSON.stringify({ error: 'Recovery event not found' }), {
