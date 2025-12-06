@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const VALID_PHOTO_TYPES = ['photo-1', 'photo-2', 'photo-3', 'photo-4'];
+const MAX_PHOTOS_PER_DISC = 4;
 
 Deno.serve(async (req) => {
   // Only allow POST requests
@@ -57,19 +57,11 @@ Deno.serve(async (req) => {
 
   // Extract fields
   const discId = formData.get('disc_id') as string;
-  const photoType = formData.get('photo_type') as string;
   const file = formData.get('file') as File;
 
   // Validate required fields
   if (!discId) {
     return new Response(JSON.stringify({ error: 'disc_id is required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  if (!photoType || !VALID_PHOTO_TYPES.includes(photoType)) {
-    return new Response(JSON.stringify({ error: 'photo_type must be one of: photo-1, photo-2, photo-3, photo-4' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -119,12 +111,36 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Check existing photo count
+  const { count: photoCount, error: countError } = await supabase
+    .from('disc_photos')
+    .select('*', { count: 'exact', head: true })
+    .eq('disc_id', discId);
+
+  if (countError) {
+    console.error('Error counting photos:', countError);
+    return new Response(JSON.stringify({ error: 'Failed to check existing photos' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if ((photoCount ?? 0) >= MAX_PHOTOS_PER_DISC) {
+    return new Response(JSON.stringify({ error: `Maximum of ${MAX_PHOTOS_PER_DISC} photos per disc` }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Generate unique photo ID
+  const photoId = crypto.randomUUID();
+
   // Determine file extension
   const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
 
   // Upload file to storage
-  // Path: {user_id}/{disc_id}/{photo_type}.{extension}
-  const storagePath = `${user.id}/${discId}/${photoType}.${extension}`;
+  // Path: {user_id}/{disc_id}/{uuid}.{extension}
+  const storagePath = `${user.id}/${discId}/${photoId}.${extension}`;
 
   const { error: uploadError } = await supabase.storage.from('disc-photos').upload(storagePath, file, {
     contentType: file.type,
@@ -145,7 +161,7 @@ Deno.serve(async (req) => {
     .insert({
       disc_id: discId,
       storage_path: storagePath,
-      photo_type: photoType,
+      photo_uuid: photoId,
     })
     .select()
     .single();
@@ -166,7 +182,7 @@ Deno.serve(async (req) => {
     JSON.stringify({
       id: photoRecord.id,
       disc_id: discId,
-      photo_type: photoType,
+      photo_id: photoId,
       storage_path: storagePath,
       photo_url: urlData?.signedUrl,
       created_at: photoRecord.created_at,

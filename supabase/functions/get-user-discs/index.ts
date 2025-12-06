@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     .select(
       `
       *,
-      photos:disc_photos(id, storage_path, photo_type, created_at)
+      photos:disc_photos(id, storage_path, photo_uuid, created_at)
     `
     )
     .eq('owner_id', user.id)
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     (discs || []).map(async (disc) => {
       const photosWithUrls = await Promise.all(
         (disc.photos || []).map(
-          async (photo: { id: string; storage_path: string; photo_type: string; created_at: string }) => {
+          async (photo: { id: string; storage_path: string; photo_uuid: string; created_at: string }) => {
             const { data: urlData } = await supabase.storage
               .from('disc-photos')
               .createSignedUrl(photo.storage_path, 3600); // 1 hour expiry

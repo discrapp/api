@@ -10,7 +10,6 @@ const SUPABASE_ANON_KEY =
 Deno.test('upload-disc-photo: should return 401 when not authenticated', async () => {
   const formData = new FormData();
   formData.append('disc_id', 'test-disc-id');
-  formData.append('photo_type', 'top');
   formData.append('file', new Blob(['test'], { type: 'image/jpeg' }), 'test.jpg');
 
   const response = await fetch(FUNCTION_URL, {
@@ -29,7 +28,6 @@ Deno.test('upload-disc-photo: should return 400 when disc_id is missing', async 
   });
 
   const formData = new FormData();
-  formData.append('photo_type', 'top');
   formData.append('file', new Blob(['test'], { type: 'image/jpeg' }), 'test.jpg');
 
   const response = await fetch(FUNCTION_URL, {
@@ -54,7 +52,6 @@ Deno.test('upload-disc-photo: should return 400 when file is missing', async () 
 
   const formData = new FormData();
   formData.append('disc_id', 'test-disc-id');
-  formData.append('photo_type', 'top');
 
   const response = await fetch(FUNCTION_URL, {
     method: 'POST',
@@ -99,7 +96,6 @@ Deno.test("upload-disc-photo: should return 403 when user doesn't own disc", asy
 
   const formData = new FormData();
   formData.append('disc_id', disc.id);
-  formData.append('photo_type', 'top');
   formData.append('file', new Blob(['test'], { type: 'image/jpeg' }), 'test.jpg');
 
   const response = await fetch(FUNCTION_URL, {
@@ -113,7 +109,7 @@ Deno.test("upload-disc-photo: should return 403 when user doesn't own disc", asy
   assertEquals(response.status, 403);
 });
 
-Deno.test('upload-disc-photo: should upload photo successfully', async () => {
+Deno.test('upload-disc-photo: should upload photo successfully with UUID filename', async () => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   // Create user and disc
@@ -135,10 +131,9 @@ Deno.test('upload-disc-photo: should upload photo successfully', async () => {
     .select()
     .single();
 
-  // Upload photo
+  // Upload photo (no photo_type needed - UUID generated server-side)
   const formData = new FormData();
   formData.append('disc_id', disc.id);
-  formData.append('photo_type', 'top');
   formData.append('file', new Blob(['test image data'], { type: 'image/jpeg' }), 'test.jpg');
 
   const response = await fetch(FUNCTION_URL, {
@@ -153,7 +148,9 @@ Deno.test('upload-disc-photo: should upload photo successfully', async () => {
   const data = await response.json();
   assertExists(data.photo_url);
   assertExists(data.storage_path);
-  assertEquals(data.photo_type, 'top');
+  assertExists(data.photo_id);
+  // Verify photo_id is a valid UUID format
+  assertEquals(data.photo_id.length, 36);
 });
 
 Deno.test('upload-disc-photo: should reject non-image files', async () => {
@@ -179,7 +176,6 @@ Deno.test('upload-disc-photo: should reject non-image files', async () => {
 
   const formData = new FormData();
   formData.append('disc_id', disc.id);
-  formData.append('photo_type', 'top');
   formData.append('file', new Blob(['test'], { type: 'application/pdf' }), 'test.pdf');
 
   const response = await fetch(FUNCTION_URL, {
@@ -193,4 +189,61 @@ Deno.test('upload-disc-photo: should reject non-image files', async () => {
   assertEquals(response.status, 400);
   const error = await response.json();
   assertExists(error.error);
+});
+
+Deno.test('upload-disc-photo: should enforce maximum 4 photos per disc', async () => {
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Create user and disc
+  const { data: authData } = await supabase.auth.signUp({
+    email: `test-${Date.now()}@example.com`,
+    password: 'testpassword123',
+  });
+
+  const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${authData.session?.access_token}` } },
+  });
+
+  const { data: disc } = await supabaseAuth
+    .from('discs')
+    .insert({
+      name: 'Test Disc',
+      flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
+    })
+    .select()
+    .single();
+
+  // Upload 4 photos successfully
+  for (let i = 0; i < 4; i++) {
+    const formData = new FormData();
+    formData.append('disc_id', disc.id);
+    formData.append('file', new Blob([`test image ${i}`], { type: 'image/jpeg' }), 'test.jpg');
+
+    const response = await fetch(FUNCTION_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${authData.session?.access_token}`,
+      },
+      body: formData,
+    });
+
+    assertEquals(response.status, 200);
+  }
+
+  // 5th photo should fail
+  const formData = new FormData();
+  formData.append('disc_id', disc.id);
+  formData.append('file', new Blob(['test image 5'], { type: 'image/jpeg' }), 'test.jpg');
+
+  const response = await fetch(FUNCTION_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${authData.session?.access_token}`,
+    },
+    body: formData,
+  });
+
+  assertEquals(response.status, 400);
+  const error = await response.json();
+  assertEquals(error.error, 'Maximum of 4 photos per disc');
 });

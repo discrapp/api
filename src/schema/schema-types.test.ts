@@ -80,12 +80,12 @@ describe('schema type inference', () => {
       id: '123e4567-e89b-12d3-a456-426614174000',
       disc_id: '123e4567-e89b-12d3-a456-426614174000',
       storage_path: '/photos/disc123.jpg',
-      photo_type: 'top',
+      photo_uuid: '550e8400-e29b-41d4-a716-446655440000',
       created_at: new Date(),
     };
 
     expect(newDiscPhoto.storage_path).toBe('/photos/disc123.jpg');
-    expect(discPhoto.photo_type).toBe('top');
+    expect(discPhoto.photo_uuid).toBe('550e8400-e29b-41d4-a716-446655440000');
   });
 
   it('should infer RecoveryEvent types correctly', () => {

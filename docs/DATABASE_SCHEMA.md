@@ -101,12 +101,10 @@ Photos of discs for identification.
   id: uuid PRIMARY KEY DEFAULT gen_random_uuid()
   disc_id: uuid REFERENCES discs(id) ON DELETE CASCADE NOT NULL
   storage_path: text NOT NULL
-  photo_type: photo_type DEFAULT 'top' NOT NULL
+  photo_uuid: text NOT NULL  // UUID identifier for the photo file
   created_at: timestamp with time zone DEFAULT now() NOT NULL
 }
 ```
-
-**Photo Type Enum:** `top`, `bottom`, `side`
 
 #### recovery_events
 

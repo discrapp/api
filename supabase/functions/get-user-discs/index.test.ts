@@ -69,10 +69,10 @@ Deno.test('get-user-discs: should return user discs with photos', async () => {
     .select()
     .single();
 
-  // Add photos to first disc
+  // Add photos to first disc (photo_uuid is a UUID identifier)
   await supabaseAuth.from('disc_photos').insert([
-    { disc_id: disc1.id, storage_path: 'test/path/top.jpg', photo_type: 'top' },
-    { disc_id: disc1.id, storage_path: 'test/path/bottom.jpg', photo_type: 'bottom' },
+    { disc_id: disc1.id, storage_path: 'test/path/photo1.jpg', photo_uuid: crypto.randomUUID() },
+    { disc_id: disc1.id, storage_path: 'test/path/photo2.jpg', photo_uuid: crypto.randomUUID() },
   ]);
 
   const response = await fetch(FUNCTION_URL, {

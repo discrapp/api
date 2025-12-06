@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { discPhotos, PhotoType } from './disc-photos';
+import { discPhotos } from './disc-photos';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 
 describe('disc_photos schema', () => {
@@ -14,7 +14,7 @@ describe('disc_photos schema', () => {
     expect(columnNames).toContain('id');
     expect(columnNames).toContain('disc_id');
     expect(columnNames).toContain('storage_path');
-    expect(columnNames).toContain('photo_type');
+    expect(columnNames).toContain('photo_uuid');
     expect(columnNames).toContain('created_at');
   });
 
@@ -37,21 +37,15 @@ describe('disc_photos schema', () => {
     expect(columns.storage_path.notNull).toBe(true);
   });
 
-  it('should have photo_type as enum with default', () => {
+  it('should have photo_uuid as text and required', () => {
     const columns = getTableColumns(discPhotos);
-    expect(columns.photo_type.enumValues).toEqual(['top', 'bottom', 'side']);
-    expect(columns.photo_type.notNull).toBe(true);
+    expect(columns.photo_uuid.dataType).toBe('string');
+    expect(columns.photo_uuid.notNull).toBe(true);
   });
 
   it('should have created_at as timestamp with default', () => {
     const columns = getTableColumns(discPhotos);
     expect(columns.created_at.dataType).toBe('date');
     expect(columns.created_at.notNull).toBe(true);
-  });
-
-  it('should export PhotoType enum values', () => {
-    expect(PhotoType.TOP).toBe('top');
-    expect(PhotoType.BOTTOM).toBe('bottom');
-    expect(PhotoType.SIDE).toBe('side');
   });
 });

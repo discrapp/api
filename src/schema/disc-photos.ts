@@ -1,14 +1,6 @@
-import { pgTable, text, timestamp, uuid, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { discs } from './discs';
-
-export const photoTypeEnum = pgEnum('photo_type', ['top', 'bottom', 'side']);
-
-export const PhotoType = {
-  TOP: 'top',
-  BOTTOM: 'bottom',
-  SIDE: 'side',
-} as const;
 
 export const discPhotos = pgTable('disc_photos', {
   id: uuid('id')
@@ -19,7 +11,7 @@ export const discPhotos = pgTable('disc_photos', {
     .references(() => discs.id, { onDelete: 'cascade' })
     .notNull(),
   storage_path: text('storage_path').notNull(),
-  photo_type: photoTypeEnum('photo_type').notNull().default('top'),
+  photo_uuid: text('photo_uuid').notNull(),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
