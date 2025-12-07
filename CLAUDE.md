@@ -1,11 +1,11 @@
-# Discr API - Project Memory
+# AceBack API - Project Memory
 
 This file contains persistent context for Claude Code sessions on this project.
 It will be automatically loaded at the start of every session.
 
 ## Project Overview
 
-This is the Supabase backend for Discr, containing database migrations, edge
+This is the Supabase backend for AceBack, containing database migrations, edge
 functions, and API configuration.
 
 **Key Details:**
@@ -33,7 +33,7 @@ api/
 
 ## Supabase Project Details
 
-- **Project Name:** discr-mvp
+- **Project Name:** aceback-mvp
 - **Project Ref:** xhaogdigrsiwxdjmjzgx
 - **Region:** us-west-2
 - **Database:** PostgreSQL 17.6.1.054

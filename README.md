@@ -1,15 +1,15 @@
-# Discr API
+# AceBack API
 
-![GitHub branch status](https://img.shields.io/github/checks-status/appdiscr/api/main)
-![GitHub Issues](https://img.shields.io/github/issues/appdiscr/api)
-![GitHub last commit](https://img.shields.io/github/last-commit/appdiscr/api)
-![GitHub repo size](https://img.shields.io/github/repo-size/appdiscr/api)
-![GitHub License](https://img.shields.io/github/license/appdiscr/api)
+![GitHub branch status](https://img.shields.io/github/checks-status/acebackapp/api/main)
+![GitHub Issues](https://img.shields.io/github/issues/acebackapp/api)
+![GitHub last commit](https://img.shields.io/github/last-commit/acebackapp/api)
+![GitHub repo size](https://img.shields.io/github/repo-size/acebackapp/api)
+![GitHub License](https://img.shields.io/github/license/acebackapp/api)
 
 ## Introduction
 
 This repository contains Supabase functions, database migrations, and API
-configuration for the Discr application.
+configuration for the AceBack application.
 
 ### Key Features
 

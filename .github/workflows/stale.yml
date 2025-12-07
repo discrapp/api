@@ -9,4 +9,4 @@ permissions:
 
 jobs:
   stale:
-    uses: 'appdiscr/.github/.github/workflows/stale.yml@main'
+    uses: 'acebackapp/.github/.github/workflows/stale.yml@main'
