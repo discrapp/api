@@ -96,7 +96,8 @@ Deno.serve(async (req) => {
   const recoveriesWithDetails = await Promise.all(
     (recoveries || []).map(async (recovery) => {
       // Extract disc (Supabase returns single object for foreign key relations)
-      const disc = recovery.disc as {
+      // Cast through unknown since TypeScript incorrectly infers this as an array
+      const disc = recovery.disc as unknown as {
         id: string;
         name: string;
         manufacturer: string;
