@@ -76,12 +76,21 @@ Deno.serve(async (req) => {
       color,
       reward_amount,
       owner_id,
-      owner:profiles!discs_owner_id_profiles_id_fk(display_name),
       photos:disc_photos(id, storage_path)
     `
     )
     .eq('qr_code_id', qrCode.id)
     .single();
+
+  // Get owner display name from profile (separate query to avoid FK issues)
+  let ownerDisplayName = 'Anonymous';
+  if (disc?.owner_id) {
+    const { data: profile } = await supabase.from('profiles').select('email').eq('id', disc.owner_id).single();
+    if (profile?.email) {
+      // Use part before @ as display name
+      ownerDisplayName = profile.email.split('@')[0];
+    }
+  }
 
   if (discError || !disc) {
     return new Response(JSON.stringify({ found: false }), {
@@ -120,7 +129,7 @@ Deno.serve(async (req) => {
         plastic: disc.plastic,
         color: disc.color,
         reward_amount: disc.reward_amount,
-        owner_display_name: (disc.owner as { display_name: string }[] | null)?.[0]?.display_name || 'Anonymous',
+        owner_display_name: ownerDisplayName,
         photo_url: photoUrl,
       },
       has_active_recovery: !!activeRecovery,
