@@ -64,20 +64,25 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Calculate 7 days ago for disc_recovered retention filter
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
   // Build query for notifications
+  // We need to fetch all notifications and then filter disc_recovered ones client-side
+  // because Supabase doesn't support OR conditions with different filters per type
   let query = supabase
     .from('notifications')
-    .select('*', { count: 'exact' })
+    .select('*')
     .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('created_at', { ascending: false });
 
   // Filter by unread if requested
   if (unreadOnly) {
     query = query.eq('read', false);
   }
 
-  const { data: notifications, error: fetchError, count } = await query;
+  const { data: allNotifications, error: fetchError } = await query;
 
   if (fetchError) {
     console.error('Failed to fetch notifications:', fetchError);
@@ -87,16 +92,20 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Get unread count separately (always, regardless of filter)
-  const { count: unreadCount, error: unreadError } = await supabase
-    .from('notifications')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .eq('read', false);
+  // Filter out disc_recovered notifications older than 7 days
+  const filteredNotifications = (allNotifications || []).filter((notification) => {
+    if (notification.type === 'disc_recovered') {
+      return new Date(notification.created_at) >= sevenDaysAgo;
+    }
+    return true;
+  });
 
-  if (unreadError) {
-    console.error('Failed to get unread count:', unreadError);
-  }
+  // Apply pagination after filtering
+  const count = filteredNotifications.length;
+  const notifications = filteredNotifications.slice(offset, offset + limit);
+
+  // Get unread count (excluding old disc_recovered notifications)
+  const unreadCount = filteredNotifications.filter((n) => !n.read).length;
 
   return new Response(
     JSON.stringify({

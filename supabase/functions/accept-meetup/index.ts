@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
+import { fetchDisplayName } from '../_shared/display-name.ts';
 
 /**
  * Accept Meetup Function
@@ -205,11 +206,9 @@ Deno.serve(async (req) => {
   }
 
   // Get owner's display name and disc info for notification
-  const { data: ownerProfile } = await supabaseAdmin.from('profiles').select('display_name').eq('id', user.id).single();
+  const ownerName = await fetchDisplayName(supabaseAdmin, user.id, 'The owner');
 
   const { data: discInfo } = await supabaseAdmin.from('discs').select('name').eq('id', recoveryEvent.disc_id).single();
-
-  const ownerName = ownerProfile?.display_name || 'The owner';
   const discName = discInfo?.name || 'the disc';
 
   const notificationTitle = 'Meetup accepted!';

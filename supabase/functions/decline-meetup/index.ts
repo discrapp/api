@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
+import { fetchDisplayName } from '../_shared/display-name.ts';
 
 /**
  * Decline Meetup Function
@@ -194,9 +195,7 @@ Deno.serve(async (req) => {
   }
 
   // Get owner's display name for notification
-  const { data: ownerProfile } = await supabaseAdmin.from('profiles').select('display_name').eq('id', user.id).single();
-
-  const ownerName = ownerProfile?.display_name || 'The owner';
+  const ownerName = await fetchDisplayName(supabaseAdmin, user.id, 'The owner');
 
   const notificationTitle = 'Meetup declined';
   const notificationBodyText = `${ownerName} declined your meetup proposal for ${discName}${reason ? `. Reason: ${reason}` : ''}`;

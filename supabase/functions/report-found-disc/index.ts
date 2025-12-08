@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
+import { fetchDisplayName } from '../_shared/display-name.ts';
 
 /**
  * Report Found Disc Function
@@ -169,13 +170,7 @@ Deno.serve(async (req) => {
   }
 
   // Get finder's display name for notification
-  const { data: finderProfile } = await supabaseAdmin
-    .from('profiles')
-    .select('display_name')
-    .eq('id', user.id)
-    .single();
-
-  const finderName = finderProfile?.display_name || 'Someone';
+  const finderName = await fetchDisplayName(supabaseAdmin, user.id, 'Someone');
 
   const notificationTitle = 'Your disc was found!';
   const notificationBody = `${finderName} found your ${disc.name}`;

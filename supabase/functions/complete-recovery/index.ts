@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
+import { fetchDisplayName } from '../_shared/display-name.ts';
 
 /**
  * Complete Recovery Function
@@ -161,13 +162,7 @@ Deno.serve(async (req) => {
   }
 
   // Get the completer's display name
-  const { data: completerProfile } = await supabaseAdmin
-    .from('profiles')
-    .select('display_name')
-    .eq('id', user.id)
-    .single();
-
-  const completerName = completerProfile?.display_name || 'Someone';
+  const completerName = await fetchDisplayName(supabaseAdmin, user.id, 'Someone');
 
   // Notify the other party that the recovery is complete
   const otherPartyId = isOwner ? recoveryEvent.finder_id : discOwner;
