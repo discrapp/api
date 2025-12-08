@@ -144,8 +144,8 @@ Deno.serve(async (req) => {
   const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
 
   // Upload file to storage
-  // Path: {user_id}/{disc_id}/{uuid}.{extension}
-  const storagePath = `${user.id}/${discId}/${photoId}.${extension}`;
+  // Path: {disc_id}/{uuid}.{extension}
+  const storagePath = `${discId}/${photoId}.${extension}`;
 
   const { error: uploadError } = await supabaseAdmin.storage.from('disc-photos').upload(storagePath, file, {
     contentType: file.type,
