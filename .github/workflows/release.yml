@@ -44,7 +44,8 @@ jobs:
     name: Validate Database Migrations
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # Skip for Dependabot PRs (no access to secrets, and they don't change migrations)
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
