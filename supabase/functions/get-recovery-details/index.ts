@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getGravatarUrl } from '../_shared/gravatar.ts';
 
 /**
  * Get Recovery Details Function
@@ -129,6 +130,7 @@ Deno.serve(async (req) => {
 
   // Get owner profile
   let ownerDisplayName = 'Unknown';
+  let ownerAvatarUrl: string | null = null;
   if (disc?.owner_id) {
     const { data: ownerProfile } = await supabaseAdmin
       .from('profiles')
@@ -144,11 +146,13 @@ Deno.serve(async (req) => {
       } else if (ownerProfile.email) {
         ownerDisplayName = ownerProfile.email.split('@')[0];
       }
+      ownerAvatarUrl = await getGravatarUrl(ownerProfile.email);
     }
   }
 
   // Get finder profile
   let finderDisplayName = 'Unknown';
+  let finderAvatarUrl: string | null = null;
   const { data: finderProfile } = await supabaseAdmin
     .from('profiles')
     .select('username, full_name, display_preference, email')
@@ -163,6 +167,7 @@ Deno.serve(async (req) => {
     } else if (finderProfile.email) {
       finderDisplayName = finderProfile.email.split('@')[0];
     }
+    finderAvatarUrl = await getGravatarUrl(finderProfile.email);
   }
 
   // Get disc photo
@@ -214,10 +219,12 @@ Deno.serve(async (req) => {
       owner: {
         id: disc?.owner_id,
         display_name: ownerDisplayName,
+        avatar_url: ownerAvatarUrl,
       },
       finder: {
         id: recovery.finder_id,
         display_name: finderDisplayName,
+        avatar_url: finderAvatarUrl,
       },
       meetup_proposals: proposals || [],
     }),
