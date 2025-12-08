@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-  // Fetch user's discs with photos, QR code, and active recovery events
+  // Fetch user's discs with photos, QR code, and recovery events
   const { data: discs, error: discsError } = await supabase
     .from('discs')
     .select(
@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
       *,
       photos:disc_photos(id, storage_path, photo_uuid, created_at),
       qr_code:qr_codes(id, short_code, status),
-      active_recovery:recovery_events(id, status, finder_id, found_at)
+      recovery_events(id, status, finder_id, found_at, surrendered_at, original_owner_id)
     `
     )
     .eq('owner_id', user.id)
@@ -85,9 +85,10 @@ Deno.serve(async (req) => {
         )
       );
 
-      // Find the most recent active recovery (not recovered or cancelled)
-      const activeRecoveries = (disc.active_recovery || []).filter(
-        (r: { status: string }) => r.status !== 'recovered' && r.status !== 'cancelled'
+      // Find the most recent active recovery (not recovered, cancelled, or surrendered)
+      const recoveryEvents = disc.recovery_events || [];
+      const activeRecoveries = recoveryEvents.filter(
+        (r: { status: string }) => !['recovered', 'cancelled', 'surrendered'].includes(r.status)
       );
       // Sort by found_at descending and get the first one
       const activeRecovery =
@@ -96,10 +97,22 @@ Deno.serve(async (req) => {
             new Date(b.found_at).getTime() - new Date(a.found_at).getTime()
         )[0] || null;
 
+      // Check if this disc was surrendered to the current user (they were the finder)
+      const surrenderedRecovery = recoveryEvents.find(
+        (r: { status: string; finder_id: string }) => r.status === 'surrendered' && r.finder_id === user.id
+      );
+      const wasSurrendered = !!surrenderedRecovery;
+
+      // Remove recovery_events from response and add processed fields
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { recovery_events: _, ...discWithoutRecoveries } = disc;
+
       return {
-        ...disc,
+        ...discWithoutRecoveries,
         photos: photosWithUrls,
         active_recovery: activeRecovery,
+        was_surrendered: wasSurrendered,
+        surrendered_at: surrenderedRecovery?.surrendered_at || null,
       };
     })
   );
