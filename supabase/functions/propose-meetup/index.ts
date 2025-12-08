@@ -168,6 +168,41 @@ Deno.serve(async (req) => {
     // Don't fail the request, the proposal was created successfully
   }
 
+  // Get proposer's display name and disc info for notification
+  const { data: proposerProfile } = await supabaseAdmin
+    .from('profiles')
+    .select('display_name')
+    .eq('id', user.id)
+    .single();
+
+  const { data: discInfo } = await supabaseAdmin.from('discs').select('name').eq('id', recoveryEvent.disc_id).single();
+
+  const proposerName = proposerProfile?.display_name || 'Someone';
+  const discName = discInfo?.name || 'your disc';
+
+  // Determine recipient: if proposer is owner, notify finder; if proposer is finder, notify owner
+  const recipientId = isOwner ? recoveryEvent.finder_id : discOwner;
+
+  // Create notification for the other party
+  if (recipientId) {
+    try {
+      await supabaseAdmin.from('notifications').insert({
+        user_id: recipientId,
+        type: 'meetup_proposed',
+        title: 'New meetup proposal',
+        body: `${proposerName} proposed a meetup for ${discName}`,
+        data: {
+          recovery_event_id,
+          proposal_id: proposal.id,
+          disc_id: recoveryEvent.disc_id,
+        },
+      });
+    } catch (notificationError) {
+      console.error('Failed to create notification:', notificationError);
+      // Don't fail the request, the proposal was created successfully
+    }
+  }
+
   // Return the created proposal
   return new Response(
     JSON.stringify({

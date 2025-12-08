@@ -167,6 +167,33 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Get finder's display name for notification
+  const { data: finderProfile } = await supabaseAdmin
+    .from('profiles')
+    .select('display_name')
+    .eq('id', user.id)
+    .single();
+
+  const finderName = finderProfile?.display_name || 'Someone';
+
+  // Create notification for disc owner
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      user_id: disc.owner_id,
+      type: 'disc_found',
+      title: 'Your disc was found!',
+      body: `${finderName} found your ${disc.name}`,
+      data: {
+        recovery_event_id: recoveryEvent.id,
+        disc_id: disc.id,
+        finder_id: user.id,
+      },
+    });
+  } catch (notificationError) {
+    console.error('Failed to create notification:', notificationError);
+    // Don't fail the request, the recovery was created successfully
+  }
+
   // Return the created recovery event
   return new Response(
     JSON.stringify({

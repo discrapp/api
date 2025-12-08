@@ -2,19 +2,20 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 /**
- * Accept Meetup Function
+ * Decline Meetup Function
  *
- * Authenticated endpoint for disc owners to accept a meetup proposal.
+ * Authenticated endpoint for disc owners to decline a meetup proposal.
  *
- * POST /accept-meetup
+ * POST /decline-meetup
  * Body: {
- *   proposal_id: string
+ *   proposal_id: string,
+ *   reason?: string
  * }
  *
  * Validations:
  * - User must be authenticated
  * - User must be the disc owner
- * - Proposal must exist and be in 'proposed' status
+ * - Proposal must exist and be in 'pending' status
  */
 
 Deno.serve(async (req) => {
@@ -46,7 +47,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { proposal_id } = body;
+  const { proposal_id, reason } = body;
 
   // Validate required fields
   if (!proposal_id) {
@@ -90,18 +91,13 @@ Deno.serve(async (req) => {
       id,
       recovery_event_id,
       proposed_by,
-      location_name,
-      latitude,
-      longitude,
-      proposed_datetime,
       status,
-      message,
       recovery_event:recovery_events!meetup_proposals_recovery_event_id_fk(
         id,
         disc_id,
         finder_id,
         status,
-        disc:discs!recovery_events_disc_id_fk(owner_id)
+        disc:discs!recovery_events_disc_id_fk(owner_id, name)
       )
     `
     )
@@ -123,29 +119,27 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Get disc owner from the nested relationship
-  // Supabase returns nested FK relationships differently based on join type
+  // Handle both array and object responses for recovery_event
   const recoveryEventData = proposal.recovery_event as unknown as
     | {
         id: string;
         disc_id: string;
         finder_id: string;
         status: string;
-        disc: { owner_id: string } | { owner_id: string }[] | null;
+        disc: { owner_id: string; name: string } | { owner_id: string; name: string }[] | null;
       }
     | {
         id: string;
         disc_id: string;
         finder_id: string;
         status: string;
-        disc: { owner_id: string } | { owner_id: string }[] | null;
+        disc: { owner_id: string; name: string } | { owner_id: string; name: string }[] | null;
       }[]
     | null;
 
   const recoveryEvent = Array.isArray(recoveryEventData) ? recoveryEventData[0] : recoveryEventData;
 
   if (!recoveryEvent) {
-    console.error('Recovery event not found. Raw data:', JSON.stringify(proposal.recovery_event));
     return new Response(JSON.stringify({ error: 'Recovery event not found' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },
@@ -156,26 +150,21 @@ Deno.serve(async (req) => {
   const discData = recoveryEvent.disc;
   const disc = Array.isArray(discData) ? discData[0] : discData;
   const discOwner = disc?.owner_id;
-
-  console.log('Authorization check:', {
-    userId: user.id,
-    discOwner,
-    rawDiscData: JSON.stringify(recoveryEvent.disc),
-  });
+  const discName = disc?.name || 'the disc';
 
   // Verify user is the disc owner
   if (discOwner !== user.id) {
-    return new Response(JSON.stringify({ error: 'Only the disc owner can accept meetup proposals' }), {
+    return new Response(JSON.stringify({ error: 'Only the disc owner can decline meetup proposals' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  // Update the proposal status to accepted
+  // Update the proposal status to declined
   const { data: updatedProposal, error: updateError } = await supabaseAdmin
     .from('meetup_proposals')
     .update({
-      status: 'accepted',
+      status: 'declined',
     })
     .eq('id', proposal_id)
     .select()
@@ -183,50 +172,48 @@ Deno.serve(async (req) => {
 
   if (updateError) {
     console.error('Failed to update proposal:', updateError);
-    return new Response(JSON.stringify({ error: 'Failed to accept proposal', details: updateError.message }), {
+    return new Response(JSON.stringify({ error: 'Failed to decline proposal', details: updateError.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  // Update recovery event status to 'meetup_confirmed'
+  // Update recovery event status back to 'found' so another proposal can be made
   const { error: eventUpdateError } = await supabaseAdmin
     .from('recovery_events')
     .update({
-      status: 'meetup_confirmed',
+      status: 'found',
       updated_at: new Date().toISOString(),
     })
     .eq('id', proposal.recovery_event_id);
 
   if (eventUpdateError) {
     console.error('Failed to update recovery event status:', eventUpdateError);
-    // Don't fail the request, the proposal was accepted successfully
+    // Don't fail the request, the proposal was declined successfully
   }
 
-  // Get owner's display name and disc info for notification
+  // Get owner's display name for notification
   const { data: ownerProfile } = await supabaseAdmin.from('profiles').select('display_name').eq('id', user.id).single();
 
-  const { data: discInfo } = await supabaseAdmin.from('discs').select('name').eq('id', recoveryEvent.disc_id).single();
-
   const ownerName = ownerProfile?.display_name || 'The owner';
-  const discName = discInfo?.name || 'the disc';
 
-  // Notify the finder that the meetup was accepted
+  // Notify the finder that the meetup was declined
   try {
     await supabaseAdmin.from('notifications').insert({
       user_id: recoveryEvent.finder_id,
-      type: 'meetup_accepted',
-      title: 'Meetup accepted!',
-      body: `${ownerName} accepted your meetup proposal for ${discName}`,
+      type: 'meetup_declined',
+      title: 'Meetup declined',
+      body: `${ownerName} declined your meetup proposal for ${discName}${reason ? `. Reason: ${reason}` : ''}`,
       data: {
         recovery_event_id: proposal.recovery_event_id,
         proposal_id: proposal.id,
         disc_id: recoveryEvent.disc_id,
+        reason: reason || null,
       },
     });
   } catch (notificationError) {
     console.error('Failed to create notification:', notificationError);
-    // Don't fail the request, the proposal was accepted successfully
+    // Don't fail the request, the proposal was declined successfully
   }
 
   // Return the updated proposal
@@ -237,12 +224,7 @@ Deno.serve(async (req) => {
         id: updatedProposal.id,
         recovery_event_id: updatedProposal.recovery_event_id,
         proposed_by: updatedProposal.proposed_by,
-        location_name: updatedProposal.location_name,
-        latitude: updatedProposal.latitude,
-        longitude: updatedProposal.longitude,
-        proposed_datetime: updatedProposal.proposed_datetime,
         status: updatedProposal.status,
-        message: updatedProposal.message,
         created_at: updatedProposal.created_at,
       },
     }),
