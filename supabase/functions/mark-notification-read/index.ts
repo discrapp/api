@@ -78,12 +78,12 @@ Deno.serve(async (req) => {
 
   if (mark_all) {
     // Mark all unread notifications as read for this user
-    const { error: updateError, count } = await supabase
+    const { error: updateError, data: updated } = await supabase
       .from('notifications')
       .update({ read: true })
       .eq('user_id', user.id)
       .eq('read', false)
-      .select('id', { count: 'exact' });
+      .select('id');
 
     if (updateError) {
       console.error('Failed to mark all notifications as read:', updateError);
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        marked_count: count || 0,
+        marked_count: updated?.length || 0,
       }),
       {
         status: 200,

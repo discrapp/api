@@ -1,5 +1,3 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 interface PushMessage {
@@ -17,7 +15,8 @@ interface SendPushNotificationParams {
   title: string;
   body: string;
   data?: Record<string, unknown>;
-  supabaseAdmin: ReturnType<typeof createClient>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabaseAdmin: any;
 }
 
 /**
@@ -48,7 +47,7 @@ export async function sendPushNotification({
 
     // Build the push message
     const message: PushMessage = {
-      to: profile.push_token,
+      to: profile.push_token as string,
       title,
       body,
       sound: 'default',
