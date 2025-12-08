@@ -6,7 +6,8 @@ import { fetchDisplayName } from '../_shared/display-name.ts';
 /**
  * Accept Meetup Function
  *
- * Authenticated endpoint for disc owners to accept a meetup proposal.
+ * Authenticated endpoint for participants to accept a meetup proposal.
+ * The person who receives the proposal (not the proposer) can accept it.
  *
  * POST /accept-meetup
  * Body: {
@@ -15,8 +16,9 @@ import { fetchDisplayName } from '../_shared/display-name.ts';
  *
  * Validations:
  * - User must be authenticated
- * - User must be the disc owner
- * - Proposal must exist and be in 'proposed' status
+ * - User must be a participant (owner or finder) in the recovery
+ * - User must NOT be the one who proposed the meetup
+ * - Proposal must exist and be in 'pending' status
  */
 
 Deno.serve(async (req) => {
@@ -159,15 +161,30 @@ Deno.serve(async (req) => {
   const disc = Array.isArray(discData) ? discData[0] : discData;
   const discOwner = disc?.owner_id;
 
+  const isOwner = discOwner === user.id;
+  const isFinder = recoveryEvent.finder_id === user.id;
+
   console.log('Authorization check:', {
     userId: user.id,
     discOwner,
-    rawDiscData: JSON.stringify(recoveryEvent.disc),
+    finderId: recoveryEvent.finder_id,
+    proposedBy: proposal.proposed_by,
+    isOwner,
+    isFinder,
   });
 
-  // Verify user is the disc owner
-  if (discOwner !== user.id) {
-    return new Response(JSON.stringify({ error: 'Only the disc owner can accept meetup proposals' }), {
+  // Verify user is a participant (owner or finder)
+  if (!isOwner && !isFinder) {
+    return new Response(JSON.stringify({ error: 'You are not a participant in this recovery' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Verify user is NOT the one who proposed the meetup
+  // Only the recipient of the proposal can accept it
+  if (proposal.proposed_by === user.id) {
+    return new Response(JSON.stringify({ error: 'You cannot accept your own meetup proposal' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -205,24 +222,26 @@ Deno.serve(async (req) => {
     // Don't fail the request, the proposal was accepted successfully
   }
 
-  // Get owner's display name and disc info for notification
-  const ownerName = await fetchDisplayName(supabaseAdmin, user.id, 'The owner');
+  // Get accepter's display name and disc info for notification
+  const accepterName = await fetchDisplayName(supabaseAdmin, user.id, isOwner ? 'The owner' : 'The finder');
 
   const { data: discInfo } = await supabaseAdmin.from('discs').select('name').eq('id', recoveryEvent.disc_id).single();
   const discName = discInfo?.name || 'the disc';
 
   const notificationTitle = 'Meetup accepted!';
-  const notificationBodyText = `${ownerName} accepted your meetup proposal for ${discName}`;
+  const notificationBodyText = `${accepterName} accepted your meetup proposal for ${discName}`;
   const notificationData = {
     recovery_event_id: proposal.recovery_event_id,
     proposal_id: proposal.id,
     disc_id: recoveryEvent.disc_id,
   };
 
-  // Notify the finder that the meetup was accepted
+  // Notify the person who proposed the meetup
+  const recipientId = proposal.proposed_by;
+
   try {
     await supabaseAdmin.from('notifications').insert({
-      user_id: recoveryEvent.finder_id,
+      user_id: recipientId,
       type: 'meetup_accepted',
       title: notificationTitle,
       body: notificationBodyText,
@@ -235,7 +254,7 @@ Deno.serve(async (req) => {
 
   // Send push notification
   await sendPushNotification({
-    userId: recoveryEvent.finder_id,
+    userId: recipientId,
     title: notificationTitle,
     body: notificationBodyText,
     data: notificationData,
