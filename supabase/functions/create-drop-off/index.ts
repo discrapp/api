@@ -168,9 +168,11 @@ Deno.serve(async (req) => {
   const finderName = await fetchDisplayName(supabaseAdmin, user.id, 'Someone');
 
   // Handle both array and object responses for disc relation
-  const discData = recoveryEvent.disc as { owner_id: string; name: string } | null;
-  const discOwner = discData?.owner_id;
-  const discName = discData?.name || 'your disc';
+  type DiscInfo = { owner_id: string; name: string };
+  const discData = recoveryEvent.disc as DiscInfo | DiscInfo[] | null;
+  const disc = Array.isArray(discData) ? discData[0] : discData;
+  const discOwner = disc?.owner_id;
+  const discName = disc?.name || 'your disc';
 
   const notificationTitle = 'Disc dropped off for pickup';
   const notificationBodyText = `${finderName} left ${discName} for you to pick up`;
