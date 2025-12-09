@@ -194,6 +194,13 @@ Deno.serve(async (req) => {
     .eq('recovery_event_id', recoveryId)
     .order('created_at', { ascending: false });
 
+  // Get drop-off details (if any)
+  const { data: dropOff } = await supabaseAdmin
+    .from('drop_offs')
+    .select('*')
+    .eq('recovery_event_id', recoveryId)
+    .single();
+
   return new Response(
     JSON.stringify({
       id: recovery.id,
@@ -227,6 +234,7 @@ Deno.serve(async (req) => {
         avatar_url: finderAvatarUrl,
       },
       meetup_proposals: proposals || [],
+      drop_off: dropOff || null,
     }),
     {
       status: 200,
