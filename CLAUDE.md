@@ -119,6 +119,30 @@ pre-commit autoupdate           # Update hook versions
 
 ## Important Notes
 
+### Test-Driven Development (TDD) - MANDATORY
+
+**CRITICAL:** All new code MUST be developed using Test-Driven Development:
+
+1. **Write tests FIRST** - Before writing any implementation code, write tests
+1. **Red-Green-Refactor cycle:**
+   - RED: Write a failing test for the new functionality
+   - GREEN: Write minimal code to make the test pass
+   - REFACTOR: Clean up while keeping tests green
+1. **Test coverage requirements:**
+   - All edge functions must have unit tests
+   - All database operations must be tested
+   - All error paths must be covered
+1. **Test file locations:**
+   - Tests go in `supabase/functions/<function-name>/*.test.ts`
+   - Use Deno's built-in test runner
+1. **Running tests:**
+
+   ```bash
+   deno test supabase/functions/
+   ```
+
+**DO NOT write implementation code without tests. This is non-negotiable.**
+
 ### Code Quality Standards
 
 **CRITICAL:** All code must adhere to linter rules from the start.
@@ -155,7 +179,7 @@ pre-commit autoupdate           # Update hook versions
 
 ---
 
-**Last Updated:** 2025-11-30
+**Last Updated:** 2025-12-09
 
 This file should be updated whenever:
 
