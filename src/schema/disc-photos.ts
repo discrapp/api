@@ -8,7 +8,7 @@ export const discPhotos = pgTable('disc_photos', {
     .default(sql`gen_random_uuid()`)
     .notNull(),
   disc_id: uuid('disc_id')
-    .references(() => discs.id, { onDelete: 'cascade' })
+    .references(/* c8 ignore next */ () => discs.id, { onDelete: 'cascade' })
     .notNull(),
   storage_path: text('storage_path').notNull(),
   photo_uuid: text('photo_uuid').notNull(),

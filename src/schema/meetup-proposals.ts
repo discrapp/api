@@ -28,10 +28,10 @@ export const meetupProposals = pgTable('meetup_proposals', {
     .default(sql`gen_random_uuid()`)
     .notNull(),
   recovery_event_id: uuid('recovery_event_id')
-    .references(() => recoveryEvents.id, { onDelete: 'cascade' })
+    .references(/* c8 ignore next */ () => recoveryEvents.id, { onDelete: 'cascade' })
     .notNull(),
   proposed_by: uuid('proposed_by')
-    .references(() => profiles.id, { onDelete: 'cascade' })
+    .references(/* c8 ignore next */ () => profiles.id, { onDelete: 'cascade' })
     .notNull(),
   location: text('location'),
   coordinates: jsonb('coordinates').$type<Coordinates>(),

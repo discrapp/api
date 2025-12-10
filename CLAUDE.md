@@ -163,6 +163,29 @@ pre-commit autoupdate           # Update hook versions
 - Use 2-space indentation, single quotes, trailing commas
 - Keep lines under 100 characters for TypeScript
 
+### Drizzle Schema Coverage
+
+When adding `.references()` to Drizzle schema tables, you MUST add a coverage
+ignore comment. Drizzle uses lazy-evaluated arrow function callbacks that are
+executed internally by Drizzle, not by application code, making them untestable.
+
+**Pattern:**
+
+```typescript
+// CORRECT - add inline ignore comment before the arrow function
+column_id: uuid('column_id')
+  .references(/* c8 ignore next */ () => otherTable.id, { onDelete: 'cascade' })
+  .notNull(),
+
+// Also works for single-line references
+other_id: uuid('other_id').references(/* c8 ignore next */ () => otherTable.id, {
+  onDelete: 'set null',
+}),
+```
+
+**Why:** V8 coverage tracks these callbacks as uncovered functions. Since they
+are framework configuration (not business logic), we exclude them from coverage.
+
 ### Database Migrations
 
 - Always create migrations for schema changes
@@ -197,7 +220,7 @@ pre-commit autoupdate           # Update hook versions
 
 ---
 
-**Last Updated:** 2025-12-09
+**Last Updated:** 2025-12-10
 
 This file should be updated whenever:
 

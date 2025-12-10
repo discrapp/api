@@ -18,7 +18,9 @@ export const qrCodes = pgTable('qr_codes', {
     .notNull(),
   short_code: text('short_code').notNull().unique(),
   status: qrCodeStatusEnum('status').notNull().default('generated'),
-  assigned_to: uuid('assigned_to').references(() => profiles.id, { onDelete: 'set null' }),
+  assigned_to: uuid('assigned_to').references(/* c8 ignore next */ () => profiles.id, {
+    onDelete: 'set null',
+  }),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

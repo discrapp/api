@@ -32,9 +32,11 @@ export const discs = pgTable('discs', {
     .default(sql`gen_random_uuid()`)
     .notNull(),
   owner_id: uuid('owner_id')
-    .references(() => profiles.id, { onDelete: 'cascade' })
+    .references(/* c8 ignore next */ () => profiles.id, { onDelete: 'cascade' })
     .notNull(),
-  qr_code_id: uuid('qr_code_id').references(() => qrCodes.id, { onDelete: 'set null' }),
+  qr_code_id: uuid('qr_code_id').references(/* c8 ignore next */ () => qrCodes.id, {
+    onDelete: 'set null',
+  }),
   name: text('name').notNull(),
   manufacturer: text('manufacturer'),
   mold: text('mold'),
