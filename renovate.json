@@ -2,7 +2,11 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "timezone": "America/Denver",
-  "schedule": ["after 10pm every weekday", "before 5am every weekday", "every weekend"],
+  "schedule": [
+    "after 10pm every weekday",
+    "before 5am every weekday",
+    "every weekend"
+  ],
   "dependencyDashboard": true,
   "dependencyDashboardTitle": "Renovate Dependency Dashboard",
   "semanticCommits": "enabled",
@@ -22,8 +26,8 @@
   "packageRules": [
     {
       "description": "Group Supabase packages",
-      "matchPackagePatterns": ["^@supabase/"],
-      "groupName": "supabase packages"
+      "groupName": "supabase packages",
+      "matchPackageNames": ["/^@supabase//"]
     },
     {
       "description": "GitHub Actions - automerge patch/minor",
