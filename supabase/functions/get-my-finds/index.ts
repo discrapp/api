@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
     `
     )
     .eq('finder_id', user.id)
-    .in('status', ['found', 'meetup_proposed', 'meetup_confirmed'])
+    .in('status', ['found', 'meetup_proposed', 'meetup_confirmed', 'dropped_off'])
     .order('created_at', { ascending: false });
 
   if (recoveriesError) {
