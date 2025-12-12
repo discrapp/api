@@ -64,8 +64,6 @@ Deno.serve(async (req) => {
       id,
       status,
       finder_message,
-      meetup_location,
-      meetup_time,
       created_at,
       updated_at,
       disc:discs(
@@ -148,8 +146,6 @@ Deno.serve(async (req) => {
         id: recovery.id,
         status: recovery.status,
         finder_message: recovery.finder_message,
-        meetup_location: recovery.meetup_location,
-        meetup_time: recovery.meetup_time,
         created_at: recovery.created_at,
         updated_at: recovery.updated_at,
         disc: disc
