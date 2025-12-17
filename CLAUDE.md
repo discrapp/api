@@ -154,6 +154,100 @@ pre-commit autoupdate           # Update hook versions
 
 **DO NOT write implementation code without tests. This is non-negotiable.**
 
+### Test Mocking - REQUIRED
+
+**CRITICAL:** All tests MUST use mocked Supabase clients. Do NOT use real database
+connections in tests.
+
+**Why mocking is required:**
+
+- Eliminates API costs from database calls during test runs
+- Tests run faster without network latency
+- Tests are isolated and deterministic
+- No test data pollution in production database
+
+**Mocking pattern:**
+
+```typescript
+// Type definitions for mock data
+interface MockUser {
+  id: string;
+  email: string;
+}
+
+interface MockDisc {
+  id: string;
+  owner_id: string;
+  name: string;
+}
+
+// Mock data arrays
+let mockUsers: MockUser[] = [];
+let mockDiscs: MockDisc[] = [];
+
+// Reset function for test isolation
+function resetMocks() {
+  mockUsers = [];
+  mockDiscs = [];
+}
+
+// Mock Supabase client factory
+function mockSupabaseClient() {
+  return {
+    from: (table: string) => ({
+      select: () => ({
+        eq: () => ({
+          single: async () => {
+            if (table === 'discs') {
+              const disc = mockDiscs[0];
+              return { data: disc || null, error: disc ? null : { code: 'PGRST116' } };
+            }
+            return { data: null, error: null };
+          },
+        }),
+      }),
+      insert: () => ({
+        select: () => ({
+          single: async () => ({ data: { id: 'new-id' }, error: null }),
+        }),
+      }),
+      update: () => ({
+        eq: () => ({
+          select: () => ({
+            single: async () => ({ data: mockDiscs[0], error: null }),
+          }),
+        }),
+      }),
+      delete: () => ({
+        eq: async () => ({ error: null }),
+      }),
+    }),
+    auth: {
+      getUser: async () => ({
+        data: { user: mockUsers[0] || null },
+        error: mockUsers[0] ? null : { message: 'No user' },
+      }),
+    },
+  };
+}
+
+// Use in tests
+Deno.test('example test', async () => {
+  resetMocks();
+  mockUsers.push({ id: 'user-1', email: 'test@example.com' });
+  mockDiscs.push({ id: 'disc-1', owner_id: 'user-1', name: 'Test Disc' });
+
+  // Test implementation using mockSupabaseClient()
+});
+```
+
+**Key patterns:**
+
+- Always call `resetMocks()` at the start of each test
+- Use typed mock data interfaces for type safety
+- Configure mock return values based on test scenario
+- Test both success and error paths
+
 ### Code Quality Standards
 
 **CRITICAL:** All code must adhere to linter and prettier rules from the start.
@@ -220,7 +314,7 @@ are framework configuration (not business logic), we exclude them from coverage.
 
 ---
 
-**Last Updated:** 2025-12-10
+**Last Updated:** 2025-12-17
 
 This file should be updated whenever:
 

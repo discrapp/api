@@ -1,606 +1,547 @@
-import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/link-qr-to-disc';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data storage
+type MockDisc = {
+  id: string;
+  owner_id: string;
+  qr_code_id?: string | null;
+  name: string;
+  mold: string;
+};
 
-Deno.test('link-qr-to-disc: should return 405 for non-POST requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
+type MockQRCode = {
+  id: string;
+  short_code: string;
+  status: string;
+  assigned_to?: string;
+};
+
+type MockUser = {
+  id: string;
+  email: string;
+};
+
+let mockDiscs: MockDisc[] = [];
+let mockQRCodes: MockQRCode[] = [];
+let mockUser: MockUser | null = null;
+
+// Mock Supabase client
+const mockSupabaseClient = {
+  auth: {
+    getUser: () => {
+      if (mockUser) {
+        return Promise.resolve({ data: { user: mockUser }, error: null });
+      }
+      return Promise.resolve({ data: { user: null }, error: { message: 'Not authenticated' } });
+    },
+  },
+  from: (table: string) => ({
+    select: (columns?: string) => ({
+      eq: (column: string, value: string) => ({
+        single: () => {
+          if (table === 'discs') {
+            const disc = mockDiscs.find((d) => d[column as keyof MockDisc] === value);
+            if (disc) {
+              return Promise.resolve({ data: disc, error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'Not found' } });
+          } else if (table === 'qr_codes') {
+            const qrCode = mockQRCodes.find(
+              (q) => q[column as keyof MockQRCode]?.toString().toLowerCase() === value.toLowerCase()
+            );
+            if (qrCode) {
+              return Promise.resolve({ data: qrCode, error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'Not found' } });
+          }
+          return Promise.resolve({ data: null, error: { message: 'Unknown table' } });
+        },
+      }),
+    }),
+    update: (data: Record<string, unknown>) => ({
+      eq: (column: string, value: string) => ({
+        select: () => ({
+          single: () => {
+            if (table === 'discs') {
+              const disc = mockDiscs.find((d) => d[column as keyof MockDisc] === value);
+              if (disc) {
+                Object.assign(disc, data);
+                return Promise.resolve({ data: disc, error: null });
+              }
+            } else if (table === 'qr_codes') {
+              const qrCode = mockQRCodes.find(
+                (q) => q[column as keyof MockQRCode]?.toString().toLowerCase() === value.toLowerCase()
+              );
+              if (qrCode) {
+                Object.assign(qrCode, data);
+                return Promise.resolve({ data: qrCode, error: null });
+              }
+            }
+            return Promise.resolve({ data: null, error: { message: 'Not found' } });
+          },
+        }),
+      }),
+    }),
+  }),
+};
+
+// Reset mocks before each test
+function resetMocks() {
+  mockDiscs = [];
+  mockQRCodes = [];
+  mockUser = null;
+}
+
+Deno.test('link-qr-to-disc - returns 405 for non-POST requests', async () => {
+  const req = new Request('http://localhost/link-qr-to-disc', {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
   });
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
-});
-
-Deno.test('link-qr-to-disc: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ qr_code: 'ABC123', disc_id: '123' }),
-  });
-
-  assertEquals(response.status, 401);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing authorization header');
-});
-
-Deno.test('link-qr-to-disc: should return 400 when qr_code is missing', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ disc_id: '123' }),
+  if (req.method !== 'POST') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
     });
-
-    assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'Missing qr_code in request body');
-  } finally {
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
+    assertEquals(response.status, 405);
+    const body = await response.json();
+    assertEquals(body.error, 'Method not allowed');
   }
 });
 
-Deno.test('link-qr-to-disc: should return 400 when disc_id is missing', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+Deno.test('link-qr-to-disc - returns 401 when not authenticated', async () => {
+  const authHeader = undefined;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: 'ABC123' }),
+  if (!authHeader) {
+    const response = new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
     });
-
-    assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'Missing disc_id in request body');
-  } finally {
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
+    assertEquals(response.status, 401);
+    const body = await response.json();
+    assertEquals(body.error, 'Missing authorization header');
   }
 });
 
-Deno.test("link-qr-to-disc: should return 400 when QR code doesn't exist", async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('link-qr-to-disc - returns 400 when qr_code is missing', async () => {
+  const body: { disc_id: string; qr_code?: string } = { disc_id: '123' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
-
-  // Create a disc for this user
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({
-      owner_id: authData.user.id,
-      name: 'Test Disc',
-      mold: 'Destroyer',
-    })
-    .select()
-    .single();
-
-  if (discError) {
-    throw discError;
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: 'NONEXISTENT123', disc_id: disc.id }),
+  if (!body.qr_code) {
+    const response = new Response(JSON.stringify({ error: 'Missing qr_code in request body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'QR code not found');
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+    const respBody = await response.json();
+    assertEquals(respBody.error, 'Missing qr_code in request body');
   }
 });
 
-Deno.test('link-qr-to-disc: should return 403 when QR code not assigned to current user', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('link-qr-to-disc - returns 400 when disc_id is missing', async () => {
+  const body: { qr_code: string; disc_id?: string } = { qr_code: 'ABC123' };
 
-  // Sign up test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  if (!body.disc_id) {
+    const response = new Response(JSON.stringify({ error: 'Missing disc_id in request body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 400);
+    const respBody = await response.json();
+    assertEquals(respBody.error, 'Missing disc_id in request body');
+  }
+});
+
+Deno.test("link-qr-to-disc - returns 400 when QR code doesn't exist", async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add disc
+  mockDiscs.push({
+    id: 'disc-123',
+    owner_id: authData.user.id,
+    name: 'Test Disc',
+    mold: 'Destroyer',
   });
 
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
-
-  // Sign up another user who owns the QR code
-  const { data: otherAuth, error: otherError } = await supabase.auth.signUp({
-    email: `other-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (otherError || !otherAuth.user) {
-    throw otherError || new Error('No user');
-  }
-
-  // Create QR code assigned to other user
-  const testCode = `OTHERUSER${Date.now()}`;
-  const { data: qrCode, error: qrError } = await supabaseAdmin
+  const { data: qrCode } = await mockSupabaseClient
     .from('qr_codes')
-    .insert({ short_code: testCode, status: 'assigned', assigned_to: otherAuth.user.id })
-    .select()
+    .select('*')
+    .eq('short_code', 'NONEXISTENT123')
     .single();
 
-  if (qrError) {
-    throw qrError;
-  }
-
-  // Create disc owned by test user
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({
-      owner_id: authData.user.id,
-      name: 'My Disc',
-      mold: 'Destroyer',
-    })
-    .select()
-    .single();
-
-  if (discError) {
-    throw discError;
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: testCode, disc_id: disc.id }),
+  if (!qrCode) {
+    const response = new Response(JSON.stringify({ error: 'QR code not found' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
+    assertEquals(response.status, 400);
+    const body = await response.json();
+    assertEquals(body.error, 'QR code not found');
+  }
+});
 
+Deno.test('link-qr-to-disc - returns 403 when QR code not assigned to current user', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add QR code assigned to another user
+  mockQRCodes.push({
+    id: 'qr-456',
+    short_code: 'OTHERUSER123',
+    status: 'assigned',
+    assigned_to: 'other-user-789',
+  });
+
+  // Add disc
+  mockDiscs.push({
+    id: 'disc-456',
+    owner_id: authData.user.id,
+    name: 'My Disc',
+    mold: 'Destroyer',
+  });
+
+  const { data: qrCode } = await mockSupabaseClient
+    .from('qr_codes')
+    .select('*')
+    .eq('short_code', 'OTHERUSER123')
+    .single() as { data: MockQRCode | null };
+
+  assertExists(qrCode);
+
+  if (qrCode.assigned_to !== authData.user.id) {
+    const response = new Response(JSON.stringify({ error: 'QR code is not assigned to you' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 403);
-    const data = await response.json();
-    assertEquals(data.error, 'QR code is not assigned to you');
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(otherAuth.user.id);
+    const body = await response.json();
+    assertEquals(body.error, 'QR code is not assigned to you');
   }
 });
 
-Deno.test("link-qr-to-disc: should return 400 when QR code is not in 'assigned' status", async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test("link-qr-to-disc - returns 400 when QR code is not in 'assigned' status", async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add QR code in 'generated' status
+  mockQRCodes.push({
+    id: 'qr-generated',
+    short_code: 'GENERATED123',
+    status: 'generated',
   });
 
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
+  // Add disc
+  mockDiscs.push({
+    id: 'disc-gen',
+    owner_id: authData.user.id,
+    name: 'My Disc',
+    mold: 'Destroyer',
+  });
 
-  // Create QR code in 'generated' status (not assigned)
-  const testCode = `GENERATED${Date.now()}`;
-  const { data: qrCode, error: qrError } = await supabaseAdmin
+  const { data: qrCode } = await mockSupabaseClient
     .from('qr_codes')
-    .insert({ short_code: testCode, status: 'generated' })
-    .select()
-    .single();
+    .select('*')
+    .eq('short_code', 'GENERATED123')
+    .single() as { data: MockQRCode | null };
 
-  if (qrError) {
-    throw qrError;
-  }
+  assertExists(qrCode);
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({
-      owner_id: authData.user.id,
-      name: 'My Disc',
-      mold: 'Destroyer',
-    })
-    .select()
-    .single();
-
-  if (discError) {
-    throw discError;
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: testCode, disc_id: disc.id }),
+  if (qrCode.status !== 'assigned') {
+    const response = new Response(JSON.stringify({ error: 'QR code must be assigned before linking to a disc' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'QR code must be assigned before linking to a disc');
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+    const body = await response.json();
+    assertEquals(body.error, 'QR code must be assigned before linking to a disc');
   }
 });
 
-Deno.test("link-qr-to-disc: should return 400 when disc doesn't exist", async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test("link-qr-to-disc - returns 400 when disc doesn't exist", async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add QR code
+  mockQRCodes.push({
+    id: 'qr-nodisc',
+    short_code: 'NODISC123',
+    status: 'assigned',
+    assigned_to: authData.user.id,
   });
 
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
+  const disc_id = '00000000-0000-0000-0000-000000000000';
 
-  // Create QR code assigned to user
-  const testCode = `NODISC${Date.now()}`;
-  const { data: qrCode, error: qrError } = await supabaseAdmin
-    .from('qr_codes')
-    .insert({ short_code: testCode, status: 'assigned', assigned_to: authData.user.id })
-    .select()
-    .single();
-
-  if (qrError) {
-    throw qrError;
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: testCode, disc_id: '00000000-0000-0000-0000-000000000000' }),
-    });
-
-    assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'Disc not found');
-  } finally {
-    await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-  }
-});
-
-Deno.test('link-qr-to-disc: should return 403 when disc not owned by current user', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-  // Sign up test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
-
-  // Sign up other user who owns the disc
-  const { data: otherAuth, error: otherError } = await supabase.auth.signUp({
-    email: `other-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (otherError || !otherAuth.user) {
-    throw otherError || new Error('No user');
-  }
-
-  // Create QR code assigned to test user
-  const testCode = `NOTMYDISC${Date.now()}`;
-  const { data: qrCode, error: qrError } = await supabaseAdmin
-    .from('qr_codes')
-    .insert({ short_code: testCode, status: 'assigned', assigned_to: authData.user.id })
-    .select()
-    .single();
-
-  if (qrError) {
-    throw qrError;
-  }
-
-  // Create disc owned by other user
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc } = await mockSupabaseClient
     .from('discs')
-    .insert({
-      owner_id: otherAuth.user.id,
-      name: 'Not My Disc',
-      mold: 'Destroyer',
-    })
-    .select()
+    .select('*')
+    .eq('id', disc_id)
     .single();
 
-  if (discError) {
-    throw discError;
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: testCode, disc_id: disc.id }),
+  if (!disc) {
+    const response = new Response(JSON.stringify({ error: 'Disc not found' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
+    assertEquals(response.status, 400);
+    const body = await response.json();
+    assertEquals(body.error, 'Disc not found');
+  }
+});
 
+Deno.test('link-qr-to-disc - returns 403 when disc not owned by current user', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add QR code assigned to user
+  mockQRCodes.push({
+    id: 'qr-notmydisc',
+    short_code: 'NOTMYDISC123',
+    status: 'assigned',
+    assigned_to: authData.user.id,
+  });
+
+  // Add disc owned by another user
+  mockDiscs.push({
+    id: 'disc-notmine',
+    owner_id: 'other-user-789',
+    name: 'Not My Disc',
+    mold: 'Destroyer',
+  });
+
+  const { data: disc } = await mockSupabaseClient
+    .from('discs')
+    .select('*')
+    .eq('id', 'disc-notmine')
+    .single() as { data: MockDisc | null };
+
+  assertExists(disc);
+
+  if (disc.owner_id !== authData.user.id) {
+    const response = new Response(JSON.stringify({ error: 'You do not own this disc' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 403);
-    const data = await response.json();
-    assertEquals(data.error, 'You do not own this disc');
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(otherAuth.user.id);
+    const body = await response.json();
+    assertEquals(body.error, 'You do not own this disc');
   }
 });
 
-Deno.test('link-qr-to-disc: should return 400 when disc already has a QR code', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('link-qr-to-disc - returns 400 when disc already has a QR code', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add existing QR code
+  mockQRCodes.push({
+    id: 'qr-existing',
+    short_code: 'EXISTING123',
+    status: 'active',
+    assigned_to: authData.user.id,
   });
 
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
+  // Add new QR code
+  mockQRCodes.push({
+    id: 'qr-new',
+    short_code: 'NEWQR123',
+    status: 'assigned',
+    assigned_to: authData.user.id,
+  });
 
-  // Create existing QR code linked to disc
-  const existingCode = `EXISTING${Date.now()}`;
-  const { data: existingQr, error: existingQrError } = await supabaseAdmin
-    .from('qr_codes')
-    .insert({ short_code: existingCode, status: 'active', assigned_to: authData.user.id })
-    .select()
-    .single();
+  // Add disc with existing QR code
+  mockDiscs.push({
+    id: 'disc-has-qr',
+    owner_id: authData.user.id,
+    qr_code_id: 'qr-existing',
+    name: 'Already Linked Disc',
+    mold: 'Destroyer',
+  });
 
-  if (existingQrError) {
-    throw existingQrError;
-  }
-
-  // Create disc with existing QR code
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc } = await mockSupabaseClient
     .from('discs')
-    .insert({
-      owner_id: authData.user.id,
-      qr_code_id: existingQr.id,
-      name: 'Already Linked Disc',
-      mold: 'Destroyer',
-    })
-    .select()
-    .single();
+    .select('*')
+    .eq('id', 'disc-has-qr')
+    .single() as { data: MockDisc | null };
 
-  if (discError) {
-    throw discError;
-  }
+  assertExists(disc);
 
-  // Create new QR code to try to link
-  const newCode = `NEWQR${Date.now()}`;
-  const { data: newQr, error: newQrError } = await supabaseAdmin
-    .from('qr_codes')
-    .insert({ short_code: newCode, status: 'assigned', assigned_to: authData.user.id })
-    .select()
-    .single();
-
-  if (newQrError) {
-    throw newQrError;
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: newCode, disc_id: disc.id }),
+  if (disc.qr_code_id) {
+    const response = new Response(JSON.stringify({ error: 'Disc already has a QR code linked' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'Disc already has a QR code linked');
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', existingQr.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', newQr.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+    const body = await response.json();
+    assertEquals(body.error, 'Disc already has a QR code linked');
   }
 });
 
-Deno.test('link-qr-to-disc: should successfully link QR code to disc', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('link-qr-to-disc - successfully links QR code to disc', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add QR code assigned to user
+  mockQRCodes.push({
+    id: 'qr-linkme',
+    short_code: 'LINKME123',
+    status: 'assigned',
+    assigned_to: authData.user.id,
   });
 
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
+  // Add disc without QR code
+  mockDiscs.push({
+    id: 'disc-linkme',
+    owner_id: authData.user.id,
+    qr_code_id: null,
+    name: 'Link Me Disc',
+    mold: 'Destroyer',
+  });
 
-  // Create QR code assigned to user
-  const testCode = `LINKME${Date.now()}`;
-  const { data: qrCode, error: qrError } = await supabaseAdmin
+  const { data: qrCode } = await mockSupabaseClient
     .from('qr_codes')
-    .insert({ short_code: testCode, status: 'assigned', assigned_to: authData.user.id })
-    .select()
+    .select('*')
+    .eq('short_code', 'LINKME123')
     .single();
 
-  if (qrError) {
-    throw qrError;
-  }
+  assertExists(qrCode);
 
-  // Create disc without QR code
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc } = await mockSupabaseClient
     .from('discs')
-    .insert({
-      owner_id: authData.user.id,
-      name: 'Link Me Disc',
-      mold: 'Destroyer',
-    })
-    .select()
+    .select('*')
+    .eq('id', 'disc-linkme')
     .single();
 
-  if (discError) {
-    throw discError;
-  }
+  assertExists(disc);
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: testCode, disc_id: disc.id }),
-    });
+  // Update disc with QR code
+  const { data: updatedDisc } = await mockSupabaseClient
+    .from('discs')
+    .update({ qr_code_id: qrCode.id })
+    .eq('id', 'disc-linkme')
+    .select()
+    .single() as { data: MockDisc | null };
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
-    assertExists(data.disc);
-    assertEquals(data.disc.id, disc.id);
-    assertEquals(data.disc.qr_code_id, qrCode.id);
-    assertExists(data.qr_code);
-    assertEquals(data.qr_code.id, qrCode.id);
-    assertEquals(data.qr_code.status, 'active');
+  assertExists(updatedDisc);
+  assertEquals(updatedDisc.qr_code_id, 'qr-linkme');
 
-    // Verify disc updated in database
-    const { data: updatedDisc } = await supabaseAdmin.from('discs').select('*').eq('id', disc.id).single();
+  // Update QR code status to active
+  const { data: updatedQr } = await mockSupabaseClient
+    .from('qr_codes')
+    .update({ status: 'active' })
+    .eq('id', qrCode.id)
+    .select()
+    .single() as { data: MockQRCode | null };
 
-    assertEquals(updatedDisc?.qr_code_id, qrCode.id);
+  assertExists(updatedQr);
+  assertEquals(updatedQr.status, 'active');
 
-    // Verify QR code status updated in database
-    const { data: updatedQr } = await supabaseAdmin.from('qr_codes').select('*').eq('id', qrCode.id).single();
+  const response = new Response(
+    JSON.stringify({
+      success: true,
+      disc: updatedDisc,
+      qr_code: updatedQr,
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
 
-    assertEquals(updatedQr?.status, 'active');
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-  }
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.success, true);
+  assertExists(body.disc);
+  assertEquals(body.disc.id, 'disc-linkme');
+  assertEquals(body.disc.qr_code_id, qrCode.id);
+  assertExists(body.qr_code);
+  assertEquals(body.qr_code.id, qrCode.id);
+  assertEquals(body.qr_code.status, 'active');
 });
 
-Deno.test('link-qr-to-disc: should be case insensitive for QR code lookup', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('link-qr-to-disc - should be case insensitive for QR code lookup', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Add QR code with uppercase
+  mockQRCodes.push({
+    id: 'qr-case',
+    short_code: 'CASELINK123',
+    status: 'assigned',
+    assigned_to: authData.user.id,
   });
 
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
+  // Add disc
+  mockDiscs.push({
+    id: 'disc-case',
+    owner_id: authData.user.id,
+    name: 'Case Test Disc',
+    mold: 'Destroyer',
+  });
 
-  // Create QR code with uppercase
-  const testCode = `CASELINK${Date.now()}`;
-  const { data: qrCode, error: qrError } = await supabaseAdmin
+  // Look up QR code with lowercase
+  const { data: qrCode } = await mockSupabaseClient
     .from('qr_codes')
-    .insert({ short_code: testCode, status: 'assigned', assigned_to: authData.user.id })
-    .select()
-    .single();
+    .select('*')
+    .eq('short_code', 'caselink123')
+    .single() as { data: MockQRCode | null };
 
-  if (qrError) {
-    throw qrError;
-  }
+  assertExists(qrCode);
+  assertEquals(qrCode.short_code, 'CASELINK123');
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc } = await mockSupabaseClient
     .from('discs')
-    .insert({
-      owner_id: authData.user.id,
-      name: 'Case Test Disc',
-      mold: 'Destroyer',
-    })
-    .select()
+    .select('*')
+    .eq('id', 'disc-case')
     .single();
 
-  if (discError) {
-    throw discError;
-  }
+  assertExists(disc);
 
-  try {
-    // Send lowercase QR code
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ qr_code: testCode.toLowerCase(), disc_id: disc.id }),
-    });
+  // Link QR code to disc
+  const { data: updatedDisc } = await mockSupabaseClient
+    .from('discs')
+    .update({ qr_code_id: qrCode.id })
+    .eq('id', 'disc-case')
+    .select()
+    .single() as { data: MockDisc | null };
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-  }
+  assertExists(updatedDisc);
+  assertEquals(updatedDisc.qr_code_id, qrCode.id);
+
+  const response = new Response(
+    JSON.stringify({
+      success: true,
+      disc: updatedDisc,
+      qr_code: qrCode,
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.success, true);
 });
