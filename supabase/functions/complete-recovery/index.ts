@@ -127,11 +127,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Check if recovery is in the correct status
-  if (recoveryEvent.status !== 'meetup_confirmed') {
+  // Check if recovery is in the correct status (meetup_confirmed or dropped_off)
+  const completableStatuses = ['meetup_confirmed', 'dropped_off'];
+  if (!completableStatuses.includes(recoveryEvent.status)) {
     return new Response(
       JSON.stringify({
-        error: 'Recovery can only be completed after a meetup is confirmed',
+        error: 'Recovery can only be completed after a meetup is confirmed or disc is dropped off',
         current_status: recoveryEvent.status,
       }),
       {

@@ -1,8 +1,7 @@
 import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const FUNCTION_URL =
-  Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/unlink-qr-code';
+const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/unlink-qr-code';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
 const SUPABASE_ANON_KEY =
   Deno.env.get('SUPABASE_ANON_KEY') ||
@@ -279,20 +278,12 @@ Deno.test('unlink-qr-code: should successfully unlink and delete QR code from di
     assertEquals(data.disc.qr_code_id, null);
 
     // Verify disc updated in database
-    const { data: updatedDisc } = await supabaseAdmin
-      .from('discs')
-      .select('*')
-      .eq('id', disc.id)
-      .single();
+    const { data: updatedDisc } = await supabaseAdmin.from('discs').select('*').eq('id', disc.id).single();
 
     assertEquals(updatedDisc?.qr_code_id, null);
 
     // Verify QR code deleted from database
-    const { data: deletedQr } = await supabaseAdmin
-      .from('qr_codes')
-      .select('*')
-      .eq('id', qrCode.id)
-      .maybeSingle();
+    const { data: deletedQr } = await supabaseAdmin.from('qr_codes').select('*').eq('id', qrCode.id).maybeSingle();
 
     assertEquals(deletedQr, null);
   } finally {

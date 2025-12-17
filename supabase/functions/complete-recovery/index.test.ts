@@ -216,6 +216,77 @@ Deno.test('complete-recovery: owner can complete a recovery', async () => {
   assertEquals(updatedProposal?.status, 'completed');
 });
 
+Deno.test('complete-recovery: owner can complete a dropped_off recovery', async () => {
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const SUPABASE_SERVICE_ROLE_KEY =
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  // Create disc owner
+  const { data: ownerAuth } = await supabase.auth.signUp({
+    email: `owner-${Date.now()}@example.com`,
+    password: 'testpassword123',
+  });
+
+  const ownerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${ownerAuth.session?.access_token}` } },
+  });
+
+  // Create a disc owned by owner
+  const { data: disc } = await ownerClient
+    .from('discs')
+    .insert({
+      name: 'Test Disc',
+      flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
+    })
+    .select()
+    .single();
+
+  // Create finder
+  const { data: finderAuth } = await supabase.auth.signUp({
+    email: `finder-${Date.now()}@example.com`,
+    password: 'testpassword123',
+  });
+
+  // Create recovery event with dropped_off status using admin client
+  const { data: recoveryEvent, error: recErr } = await supabaseAdmin
+    .from('recovery_events')
+    .insert({
+      disc_id: disc!.id,
+      finder_id: finderAuth.user?.id,
+      status: 'dropped_off',
+    })
+    .select()
+    .single();
+
+  if (recErr) {
+    throw recErr;
+  }
+
+  // Owner completes the recovery
+  const response = await fetch(FUNCTION_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ownerAuth.session?.access_token}`,
+    },
+    body: JSON.stringify({ recovery_event_id: recoveryEvent.id }),
+  });
+
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.success, true);
+  assertExists(data.recovery_event);
+  assertEquals(data.recovery_event.status, 'recovered');
+
+  // Clean up
+  await supabaseAdmin.from('recovery_events').delete().eq('id', recoveryEvent.id);
+  await supabaseAdmin.from('discs').delete().eq('id', disc!.id);
+  await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user!.id);
+  await supabaseAdmin.auth.admin.deleteUser(finderAuth.user!.id);
+});
+
 Deno.test('complete-recovery: should reject already completed recoveries', async () => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
