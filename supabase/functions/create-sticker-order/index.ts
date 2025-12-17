@@ -1,6 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno';
+import Stripe from 'npm:stripe@14.21.0';
 
 /**
  * Create Sticker Order Function
