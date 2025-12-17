@@ -7,7 +7,7 @@ Deno.test('generateShortCode: should generate 12 character code', () => {
 });
 
 Deno.test('generateShortCode: should only contain valid characters', () => {
-  const validChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const validChars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 
   for (let i = 0; i < 100; i++) {
     const code = generateShortCode();
@@ -18,7 +18,7 @@ Deno.test('generateShortCode: should only contain valid characters', () => {
 });
 
 Deno.test('generateShortCode: should not contain ambiguous characters', () => {
-  const ambiguousChars = '0O1lI';
+  const ambiguousChars = '0O1lIio';
 
   for (let i = 0; i < 100; i++) {
     const code = generateShortCode();
@@ -33,9 +33,28 @@ Deno.test('generateShortCode: should generate different codes each time', () => 
   for (let i = 0; i < 100; i++) {
     codes.add(generateShortCode());
   }
-  // With 8 character codes from 30 characters, collision probability is very low
-  // We expect at least 95 unique codes out of 100
-  assertEquals(codes.size >= 95, true, `Expected at least 95 unique codes, got ${codes.size}`);
+  // With 12 character codes from 55 characters, collision probability is extremely low
+  // We expect all 100 codes to be unique
+  assertEquals(codes.size, 100, `Expected 100 unique codes, got ${codes.size}`);
+});
+
+Deno.test('generateShortCode: should use mixed case characters', () => {
+  // Generate enough codes to statistically guarantee mixed case
+  let hasUpper = false;
+  let hasLower = false;
+  let hasNumber = false;
+
+  for (let i = 0; i < 100; i++) {
+    const code = generateShortCode();
+    if (/[A-Z]/.test(code)) hasUpper = true;
+    if (/[a-z]/.test(code)) hasLower = true;
+    if (/[0-9]/.test(code)) hasNumber = true;
+    if (hasUpper && hasLower && hasNumber) break;
+  }
+
+  assertEquals(hasUpper, true, 'Should contain uppercase letters');
+  assertEquals(hasLower, true, 'Should contain lowercase letters');
+  assertEquals(hasNumber, true, 'Should contain numbers');
 });
 
 Deno.test('generateShortCodes: should generate requested number of codes', () => {

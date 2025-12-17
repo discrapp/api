@@ -2,11 +2,15 @@
  * Short Code Generation Utility
  *
  * Generates unique alphanumeric short codes for QR codes.
- * Excludes ambiguous characters (0, O, 1, l, I) for better readability.
+ * Uses mixed case for maximum entropy and excludes ambiguous characters.
  */
 
-// Alphabet excluding ambiguous characters
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// Mixed-case alphabet excluding ambiguous characters (0, O, o, 1, l, I, i)
+// Upper: ABCDEFGHJKLMNPQRSTUVWXYZ (24 chars - no I, O)
+// Lower: abcdefghjkmnpqrstuvwxyz (23 chars - no i, l, o)
+// Numbers: 23456789 (8 chars - no 0, 1)
+// Total: 55 characters = 55^12 ≈ 1.1 × 10^21 combinations
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 const CODE_LENGTH = 12;
 
 /**

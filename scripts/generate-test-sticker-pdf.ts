@@ -40,30 +40,26 @@ const STICKERS_PER_COL = 5;
 // App URL for QR codes
 const APP_URL = 'https://aceback.app/d';
 
-// Test short codes (12 characters)
-const TEST_CODES = [
-  'ABCD1234EFGH',
-  'JKLM5678NPQR',
-  'STUV9ABCWXYZ',
-  'TEST2DEFDEMO',
-  'SAMP3GHJPRNT',
-  'CODE4KLMDISC',
-  'BACK5NPQFIND',
-  'SCAN6RSTLINK',
-  'QRCD7UVWSTKR',
-  'ACES8XYZGOLF',
-  // Add more for a full page
-  'FRWY9ABCPUTT',
-  'DRVE2DEFCHIP',
-  'HYZE3GHJMAKO',
-  'BERG4KLMZONE',
-  'REKO5NPQPURE',
-  'ENVY6RSTPOLT',
-  'VOLT7UVWWAVE',
-  'HEAT8XYZNUKE',
-  'CRAV9ABCBUZZ',
-  'LUNA2DEFATOM',
-];
+// Generate random short codes using the same algorithm as production
+// Mixed-case alphabet excluding ambiguous characters (0, O, o, 1, l, I, i)
+const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+const SHORT_CODE_LENGTH = 12;
+
+function generateTestCode(): string {
+  let result = '';
+  const randomValues = new Uint32Array(SHORT_CODE_LENGTH);
+  crypto.getRandomValues(randomValues);
+  for (let i = 0; i < SHORT_CODE_LENGTH; i++) {
+    result += SHORT_CODE_ALPHABET[randomValues[i] % SHORT_CODE_ALPHABET.length];
+  }
+  return result;
+}
+
+// Generate 20 random test codes for a full page
+const TEST_CODES: string[] = [];
+for (let i = 0; i < 20; i++) {
+  TEST_CODES.push(generateTestCode());
+}
 
 async function generateTestPdf() {
   console.log('🎨 Generating test sticker PDF...\n');
