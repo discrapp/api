@@ -1,0 +1,89 @@
+---
+name: Test Sticker PDF
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/generate-sticker-pdf/**'
+      - 'scripts/generate-test-sticker-pdf.ts'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  generate-test-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Generate Test PDF
+        run: deno run --allow-write --allow-net scripts/generate-test-sticker-pdf.ts
+
+      - name: Upload PDF Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stickers
+          path: test-stickers.pdf
+          retention-days: 7
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const stats = fs.statSync('test-stickers.pdf');
+            const fileSizeKB = (stats.size / 1024).toFixed(1);
+
+            const body = `## 🎨 Test Sticker PDF Generated
+
+            A test PDF has been generated with the current sticker layout.
+
+            **File size:** ${fileSizeKB} KB
+
+            📥 [Download the PDF](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) from the workflow artifacts.
+
+            ### Layout Details
+            - Sticker size: 2" x 2"
+            - QR code size: 85pt
+            - Grid: 4 x 5 per page
+            - URL format: \`aceback.app/d/{code}\`
+
+            ---
+            *Generated automatically when generate-sticker-pdf files change.*`;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Test Sticker PDF Generated')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }

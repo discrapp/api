@@ -12,6 +12,22 @@
 import { PDFDocument, rgb, StandardFonts } from 'https://esm.sh/pdf-lib@1.17.1';
 import QRCode from 'https://esm.sh/qrcode@1.5.3';
 
+// Type declarations for QRCode library
+interface QRCodeOptions {
+  width?: number;
+  margin?: number;
+  color?: {
+    dark?: string;
+    light?: string;
+  };
+}
+
+interface QRCodeModule {
+  toDataURL(text: string, options?: QRCodeOptions): Promise<string>;
+}
+
+const QR: QRCodeModule = QRCode as QRCodeModule;
+
 // Sticker dimensions in points (72 points = 1 inch)
 const STICKER_WIDTH = 144; // 2 inches
 const STICKER_HEIGHT = 144; // 2 inches
@@ -91,7 +107,7 @@ async function generateTestPdf() {
       const qrUrl = `${APP_URL}/${shortCode}`;
 
       // Generate QR code as data URL
-      const qrDataUrl = await QRCode.toDataURL(qrUrl, {
+      const qrDataUrl = await QR.toDataURL(qrUrl, {
         width: QR_SIZE * 2, // Higher resolution for quality
         margin: 1,
         color: {
