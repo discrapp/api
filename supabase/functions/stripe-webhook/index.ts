@@ -127,9 +127,83 @@ Deno.serve(async (req) => {
 
       console.log(`Order ${updatedOrder.order_number} marked as paid`);
 
-      // TODO: Trigger QR code generation
-      // TODO: Send confirmation email to user
-      // TODO: Send notification to printer
+      // Chain the order fulfillment flow
+      const functionsUrl = `${supabaseUrl}/functions/v1`;
+
+      // Step 1: Generate QR codes
+      console.log('Triggering QR code generation...');
+      const qrResponse = await fetch(`${functionsUrl}/generate-order-qr-codes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${supabaseServiceKey}`,
+        },
+        body: JSON.stringify({ order_id: orderId }),
+      });
+
+      if (!qrResponse.ok) {
+        const qrError = await qrResponse.json();
+        console.error('Failed to generate QR codes:', qrError);
+        // Continue anyway - order is paid, QR generation can be retried
+      } else {
+        console.log('QR codes generated successfully');
+
+        // Step 2: Generate PDF
+        console.log('Triggering PDF generation...');
+        const pdfResponse = await fetch(`${functionsUrl}/generate-sticker-pdf`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({ order_id: orderId }),
+        });
+
+        if (!pdfResponse.ok) {
+          const pdfError = await pdfResponse.json();
+          console.error('Failed to generate PDF:', pdfError);
+          // Continue anyway - QR codes exist, PDF can be retried
+        } else {
+          console.log('PDF generated successfully');
+
+          // Step 3: Send printer notification
+          console.log('Sending printer notification...');
+          const emailResponse = await fetch(`${functionsUrl}/send-printer-notification`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({ order_id: orderId }),
+          });
+
+          if (!emailResponse.ok) {
+            const emailError = await emailResponse.json();
+            console.error('Failed to send printer notification:', emailError);
+          } else {
+            console.log('Printer notification sent successfully');
+          }
+        }
+      }
+
+      // Send confirmation email to user (fire and forget - don't block on this)
+      console.log('Sending order confirmation to user...');
+      fetch(`${functionsUrl}/send-order-confirmation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${supabaseServiceKey}`,
+        },
+        body: JSON.stringify({ order_id: orderId }),
+      })
+        .then((res) => {
+          if (res.ok) {
+            console.log('Order confirmation sent to user');
+          } else {
+            console.error('Failed to send order confirmation');
+          }
+        })
+        .catch((err) => console.error('Error sending order confirmation:', err));
 
       break;
     }
