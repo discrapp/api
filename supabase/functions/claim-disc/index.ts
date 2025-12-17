@@ -94,13 +94,10 @@ Deno.serve(async (req) => {
 
   // Verify disc has no owner
   if (disc.owner_id !== null) {
-    return new Response(
-      JSON.stringify({ error: 'This disc already has an owner and cannot be claimed' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'This disc already has an owner and cannot be claimed' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Set disc owner_id to the claiming user
@@ -114,13 +111,10 @@ Deno.serve(async (req) => {
 
   if (updateError) {
     console.error('Failed to claim disc:', updateError);
-    return new Response(
-      JSON.stringify({ error: 'Failed to claim disc', details: updateError.message }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Failed to claim disc', details: updateError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Close any abandoned recovery events for this disc

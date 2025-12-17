@@ -1,8 +1,7 @@
 import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const FUNCTION_URL =
-  Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/upload-drop-off-photo';
+const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/upload-drop-off-photo';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
 const SUPABASE_ANON_KEY =
   Deno.env.get('SUPABASE_ANON_KEY') ||

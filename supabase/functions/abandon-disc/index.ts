@@ -123,13 +123,10 @@ Deno.serve(async (req) => {
 
   // Verify recovery is in dropped_off status
   if (recovery.status !== 'dropped_off') {
-    return new Response(
-      JSON.stringify({ error: 'Can only abandon a disc that has been dropped off' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Can only abandon a disc that has been dropped off' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Update recovery status to abandoned
@@ -143,13 +140,10 @@ Deno.serve(async (req) => {
 
   if (updateRecoveryError) {
     console.error('Failed to update recovery status:', updateRecoveryError);
-    return new Response(
-      JSON.stringify({ error: 'Failed to abandon disc', details: updateRecoveryError.message }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Failed to abandon disc', details: updateRecoveryError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Set disc owner_id to null (making it claimable)

@@ -137,13 +137,10 @@ Deno.serve(async (req) => {
 
   // Verify recovery is in 'found' status
   if (recoveryEvent.status !== 'found') {
-    return new Response(
-      JSON.stringify({ error: 'Can only upload drop-off photo for a recovery in found status' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Can only upload drop-off photo for a recovery in found status' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Generate unique photo ID

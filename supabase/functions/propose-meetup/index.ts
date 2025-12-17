@@ -138,6 +138,53 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Auto-decline any existing pending proposals (counter-proposal flow)
+  // This allows either party to propose an alternative meetup
+  const { data: existingProposals } = await supabaseAdmin
+    .from('meetup_proposals')
+    .select('id, proposed_by')
+    .eq('recovery_event_id', recovery_event_id)
+    .eq('status', 'pending');
+
+  if (existingProposals && existingProposals.length > 0) {
+    // Decline all pending proposals (typically just one)
+    const proposalIds = existingProposals.map((p) => p.id);
+    await supabaseAdmin.from('meetup_proposals').update({ status: 'declined' }).in('id', proposalIds);
+
+    // Notify the original proposer(s) that their proposal was countered
+    for (const proposal of existingProposals) {
+      if (proposal.proposed_by !== user.id) {
+        const { data: discInfo } = await supabaseAdmin
+          .from('discs')
+          .select('name')
+          .eq('id', recoveryEvent.disc_id)
+          .single();
+        const discName = discInfo?.name || 'the disc';
+        const counterProposerName = await fetchDisplayName(supabaseAdmin, user.id, 'The other party');
+
+        try {
+          await supabaseAdmin.from('notifications').insert({
+            user_id: proposal.proposed_by,
+            type: 'meetup_countered',
+            title: 'Meetup counter-proposal',
+            body: `${counterProposerName} suggested a different meetup for ${discName}`,
+            data: { recovery_event_id, disc_id: recoveryEvent.disc_id },
+          });
+
+          await sendPushNotification({
+            userId: proposal.proposed_by,
+            title: 'Meetup counter-proposal',
+            body: `${counterProposerName} suggested a different meetup for ${discName}`,
+            data: { recovery_event_id, disc_id: recoveryEvent.disc_id },
+            supabaseAdmin,
+          });
+        } catch (notificationError) {
+          console.error('Failed to send counter-proposal notification:', notificationError);
+        }
+      }
+    }
+  }
+
   // Create the meetup proposal
   const { data: proposal, error: createError } = await supabaseAdmin
     .from('meetup_proposals')
