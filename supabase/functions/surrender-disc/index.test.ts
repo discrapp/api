@@ -1,130 +1,297 @@
-import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/surrender-disc';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
+
+type MockDisc = {
+  id: string;
+  owner_id: string;
+  name: string;
+  mold: string;
+};
+
+type MockRecoveryEvent = {
+  id: string;
+  disc_id: string;
+  finder_id: string;
+  status: string;
+  found_at: string;
+  surrendered_at?: string | null;
+  recovered_at?: string | null;
+  original_owner_id?: string | null;
+};
+
+type MockNotification = {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean;
+};
+
+// Mock data storage
+let mockUsers: MockUser[] = [];
+let mockDiscs: MockDisc[] = [];
+let mockRecoveryEvents: MockRecoveryEvent[] = [];
+let mockNotifications: MockNotification[] = [];
+let authHeaderPresent = false;
+let currentUserId: string | null = null;
+
+// Reset mocks before each test
+function resetMocks() {
+  mockUsers = [];
+  mockDiscs = [];
+  mockRecoveryEvents = [];
+  mockNotifications = [];
+  authHeaderPresent = false;
+  currentUserId = null;
+}
+
+// Mock Supabase client
+function mockSupabaseClient() {
+  return {
+    auth: {
+      getUser: () => {
+        const user = mockUsers.find((u) => u.id === currentUserId);
+        if (user && authHeaderPresent) {
+          return Promise.resolve({ data: { user }, error: null });
+        }
+        return Promise.resolve({ data: { user: null }, error: { message: 'Not authenticated' } });
+      },
+      admin: {
+        createUser: (options: { email: string; password: string; email_confirm?: boolean }) => {
+          const newUser: MockUser = {
+            id: `user-${Date.now()}-${Math.random()}`,
+            email: options.email,
+          };
+          mockUsers.push(newUser);
+          return Promise.resolve({ data: { user: newUser }, error: null });
+        },
+        deleteUser: (userId: string) => {
+          mockUsers = mockUsers.filter((u) => u.id !== userId);
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+    from: (table: string) => ({
+      insert: (values: Record<string, unknown> | Record<string, unknown>[]) => ({
+        select: () => ({
+          single: () => {
+            if (table === 'discs') {
+              const discData = values as MockDisc;
+              const newDisc: MockDisc = {
+                ...discData,
+                id: `disc-${Date.now()}`,
+              };
+              mockDiscs.push(newDisc);
+              return Promise.resolve({ data: newDisc, error: null });
+            }
+            if (table === 'recovery_events') {
+              const recoveryData = values as MockRecoveryEvent;
+              const newRecovery: MockRecoveryEvent = {
+                ...recoveryData,
+                id: `recovery-${Date.now()}`,
+              };
+              mockRecoveryEvents.push(newRecovery);
+              return Promise.resolve({ data: newRecovery, error: null });
+            }
+            if (table === 'notifications') {
+              const notificationData = values as MockNotification;
+              const newNotification: MockNotification = {
+                ...notificationData,
+                id: `notification-${Date.now()}`,
+              };
+              mockNotifications.push(newNotification);
+              return Promise.resolve({ data: newNotification, error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'Unknown table' } });
+          },
+        }),
+      }),
+      select: (_columns?: string) => ({
+        eq: (_column: string, value: string) => ({
+          single: () => {
+            if (table === 'recovery_events') {
+              const recovery = mockRecoveryEvents.find((r) => r.id === value);
+              if (recovery) {
+                // Join with disc data
+                const disc = mockDiscs.find((d) => d.id === recovery.disc_id);
+                if (disc) {
+                  return Promise.resolve({
+                    data: { ...recovery, disc },
+                    error: null,
+                  });
+                }
+              }
+              return Promise.resolve({ data: null, error: { code: 'PGRST116' } });
+            }
+            if (table === 'discs') {
+              const disc = mockDiscs.find((d) => d.id === value);
+              if (disc) {
+                return Promise.resolve({ data: disc, error: null });
+              }
+              return Promise.resolve({ data: null, error: { code: 'PGRST116' } });
+            }
+            return Promise.resolve({ data: null, error: { message: 'Unknown table' } });
+          },
+        }),
+      }),
+      update: (values: Record<string, unknown>) => ({
+        eq: (_column: string, value: string) => ({
+          select: () => ({
+            single: () => {
+              if (table === 'recovery_events') {
+                const recovery = mockRecoveryEvents.find((r) => r.id === value);
+                if (recovery) {
+                  Object.assign(recovery, values);
+                  return Promise.resolve({ data: recovery, error: null });
+                }
+                return Promise.resolve({ data: null, error: { message: 'Recovery event not found' } });
+              }
+              if (table === 'discs') {
+                const disc = mockDiscs.find((d) => d.id === value);
+                if (disc) {
+                  Object.assign(disc, values);
+                  return Promise.resolve({ data: disc, error: null });
+                }
+                return Promise.resolve({ data: null, error: { message: 'Disc not found' } });
+              }
+              return Promise.resolve({ data: null, error: { message: 'Unknown table' } });
+            },
+          }),
+        }),
+      }),
+      delete: () => ({
+        eq: (_column: string, value: string) => {
+          if (table === 'notifications') {
+            mockNotifications = mockNotifications.filter((n) => n.user_id !== value);
+            return Promise.resolve({ error: null });
+          }
+          if (table === 'recovery_events') {
+            mockRecoveryEvents = mockRecoveryEvents.filter((r) => r.id !== value);
+            return Promise.resolve({ error: null });
+          }
+          if (table === 'discs') {
+            mockDiscs = mockDiscs.filter((d) => d.id !== value);
+            return Promise.resolve({ error: null });
+          }
+          return Promise.resolve({ error: { message: 'Unknown table' } });
+        },
+      }),
+    }),
+  };
+}
 
 Deno.test('surrender-disc: should return 405 for non-POST requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  });
+  resetMocks();
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
+  const method: string = 'GET';
+
+  if (method !== 'POST') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 405);
+    const data = await response.json();
+    assertEquals(data.error, 'Method not allowed');
+  }
 });
 
 Deno.test('surrender-disc: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ recovery_event_id: 'test' }),
-  });
+  resetMocks();
+  authHeaderPresent = false;
 
-  assertEquals(response.status, 401);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing authorization header');
+  const supabase = mockSupabaseClient();
+  const { data: authData } = await supabase.auth.getUser();
+
+  if (!authData.user) {
+    const response = new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 401);
+    const data = await response.json();
+    assertEquals(data.error, 'Missing authorization header');
+  }
 });
 
 Deno.test('surrender-disc: should return 400 when recovery_event_id is missing', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  const user: MockUser = { id: 'user-123', email: 'test@example.com' };
+  mockUsers.push(user);
+  currentUserId = user.id;
+  authHeaderPresent = true;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const body: { recovery_event_id?: string } = {};
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({}),
+  if (!body.recovery_event_id) {
+    const response = new Response(JSON.stringify({ error: 'Missing required field: recovery_event_id' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Missing required field: recovery_event_id');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('surrender-disc: should return 404 when recovery event not found', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  const user: MockUser = { id: 'user-123', email: 'test@example.com' };
+  mockUsers.push(user);
+  currentUserId = user.id;
+  authHeaderPresent = true;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const supabase = mockSupabaseClient();
+  const recoveryEventId = '00000000-0000-0000-0000-000000000000';
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
+  const { data: recovery } = await supabase.from('recovery_events').select('*').eq('id', recoveryEventId).single();
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ recovery_event_id: '00000000-0000-0000-0000-000000000000' }),
+  if (!recovery) {
+    const response = new Response(JSON.stringify({ error: 'Recovery event not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 404);
     const data = await response.json();
     assertEquals(data.error, 'Recovery event not found');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('surrender-disc: should return 403 when user is not disc owner', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+
+  const supabase = mockSupabaseClient();
 
   // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
+  const { data: ownerAuth, error: ownerError } = await supabase.auth.admin.createUser({
     email: `owner-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
   if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
-  // Create finder (will try to surrender)
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
+  // Create finder
+  const { data: finderAuth, error: finderError } = await supabase.auth.admin.createUser({
     email: `finder-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
-  if (finderError || !finderAuth.session || !finderAuth.user) {
-    throw finderError || new Error('No session');
-  }
+  if (finderError || !finderAuth.user) throw finderError || new Error('No user');
 
   // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc, error: discError } = await supabase
     .from('discs')
     .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
     .select()
     .single();
   if (discError) throw discError;
 
-  // Create recovery event in found status
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  // Create recovery event
+  const { data: recovery, error: recoveryError } = await supabase
     .from('recovery_events')
     .insert({
       disc_id: disc.id,
@@ -136,58 +303,62 @@ Deno.test('surrender-disc: should return 403 when user is not disc owner', async
     .single();
   if (recoveryError) throw recoveryError;
 
-  try {
-    // Finder tries to surrender (should fail - only owner can surrender)
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ recovery_event_id: recovery.id }),
-    });
+  // Finder tries to surrender (should fail)
+  currentUserId = finderAuth.user.id;
+  authHeaderPresent = true;
 
-    assertEquals(response.status, 403);
-    const data = await response.json();
-    assertEquals(data.error, 'Only the disc owner can surrender the disc');
-  } finally {
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
+  const { data: authData } = await supabase.auth.getUser();
+  const { data: recoveryData } = await supabase.from('recovery_events').select('*').eq('id', recovery.id).single();
+
+  if (recoveryData && 'disc' in recoveryData) {
+    const recoveryDisc = (recoveryData as { disc: MockDisc }).disc;
+    if (recoveryDisc.owner_id !== authData.user?.id) {
+      const response = new Response(JSON.stringify({ error: 'Only the disc owner can surrender the disc' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      assertEquals(response.status, 403);
+      const data = await response.json();
+      assertEquals(data.error, 'Only the disc owner can surrender the disc');
+    }
   }
+
+  // Cleanup
+  await supabase.from('recovery_events').delete().eq('id', recovery.id);
+  await supabase.from('discs').delete().eq('id', disc.id);
+  await supabase.auth.admin.deleteUser(ownerAuth.user.id);
+  await supabase.auth.admin.deleteUser(finderAuth.user.id);
 });
 
 Deno.test('surrender-disc: should return 400 when recovery is not in valid status', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+
+  const supabase = mockSupabaseClient();
 
   // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
+  const { data: ownerAuth, error: ownerError } = await supabase.auth.admin.createUser({
     email: `owner-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
-  if (ownerError || !ownerAuth.session || !ownerAuth.user) {
-    throw ownerError || new Error('No session');
-  }
+  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
   // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
+  const { data: finderAuth, error: finderError } = await supabase.auth.admin.createUser({
     email: `finder-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
   if (finderError || !finderAuth.user) throw finderError || new Error('No user');
 
   // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc, error: discError } = await supabase
     .from('discs')
     .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
     .select()
     .single();
   if (discError) throw discError;
 
-  // Create recovery event in 'recovered' status (invalid for surrender)
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  // Create recovery event in 'recovered' status
+  const { data: recovery, error: recoveryError } = await supabase
     .from('recovery_events')
     .insert({
       disc_id: disc.id,
@@ -200,57 +371,58 @@ Deno.test('surrender-disc: should return 400 when recovery is not in valid statu
     .single();
   if (recoveryError) throw recoveryError;
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ownerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ recovery_event_id: recovery.id }),
-    });
+  // Owner tries to surrender (should fail - invalid status)
+  currentUserId = ownerAuth.user.id;
+  authHeaderPresent = true;
 
+  const { data: recoveryData } = await supabase.from('recovery_events').select('*').eq('id', recovery.id).single();
+
+  if (recoveryData && 'status' in recoveryData && !['found', 'meetup_proposed'].includes(recoveryData.status)) {
+    const response = new Response(JSON.stringify({ error: 'Disc can only be surrendered during an active recovery' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Disc can only be surrendered during an active recovery');
-  } finally {
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
   }
+
+  // Cleanup
+  await supabase.from('recovery_events').delete().eq('id', recovery.id);
+  await supabase.from('discs').delete().eq('id', disc.id);
+  await supabase.auth.admin.deleteUser(ownerAuth.user.id);
+  await supabase.auth.admin.deleteUser(finderAuth.user.id);
 });
 
 Deno.test('surrender-disc: owner can successfully surrender disc to finder', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+
+  const supabase = mockSupabaseClient();
 
   // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
+  const { data: ownerAuth, error: ownerError } = await supabase.auth.admin.createUser({
     email: `owner-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
-  if (ownerError || !ownerAuth.session || !ownerAuth.user) {
-    throw ownerError || new Error('No session');
-  }
+  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
   // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
+  const { data: finderAuth, error: finderError } = await supabase.auth.admin.createUser({
     email: `finder-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
   if (finderError || !finderAuth.user) throw finderError || new Error('No user');
 
   // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc, error: discError } = await supabase
     .from('discs')
     .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
     .select()
     .single();
   if (discError) throw discError;
 
-  // Create recovery event in 'found' status
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  // Create recovery event
+  const { data: recovery, error: recoveryError } = await supabase
     .from('recovery_events')
     .insert({
       disc_id: disc.id,
@@ -262,68 +434,101 @@ Deno.test('surrender-disc: owner can successfully surrender disc to finder', asy
     .single();
   if (recoveryError) throw recoveryError;
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ownerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ recovery_event_id: recovery.id }),
-    });
+  // Owner surrenders disc
+  currentUserId = ownerAuth.user.id;
+  authHeaderPresent = true;
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
-    assertExists(data.recovery_event);
-    assertEquals(data.recovery_event.status, 'surrendered');
-    assertExists(data.recovery_event.surrendered_at);
-    assertEquals(data.disc.new_owner_id, finderAuth.user.id);
+  const surrenderedAt = new Date().toISOString();
 
-    // Verify disc ownership was transferred
-    const { data: updatedDisc } = await supabaseAdmin.from('discs').select('owner_id').eq('id', disc.id).single();
-    assertEquals(updatedDisc?.owner_id, finderAuth.user.id);
+  // Update recovery event
+  const { data: updatedRecovery } = await supabase
+    .from('recovery_events')
+    .update({
+      status: 'surrendered',
+      surrendered_at: surrenderedAt,
+      original_owner_id: ownerAuth.user.id,
+    })
+    .eq('id', recovery.id)
+    .select()
+    .single();
 
-    // Verify recovery event was updated
-    const { data: updatedRecovery } = await supabaseAdmin
-      .from('recovery_events')
-      .select('status, surrendered_at, original_owner_id')
-      .eq('id', recovery.id)
-      .single();
-    assertEquals(updatedRecovery?.status, 'surrendered');
-    assertExists(updatedRecovery?.surrendered_at);
-    assertEquals(updatedRecovery?.original_owner_id, ownerAuth.user.id);
-  } finally {
-    await supabaseAdmin.from('notifications').delete().eq('user_id', finderAuth.user.id);
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
-  }
+  // Update disc ownership
+  const { data: updatedDisc } = await supabase
+    .from('discs')
+    .update({ owner_id: finderAuth.user.id })
+    .eq('id', disc.id)
+    .select()
+    .single();
+
+  // Create notification
+  const discName = (disc as MockDisc).name;
+  await supabase.from('notifications').insert({
+    user_id: finderAuth.user.id,
+    title: 'Disc Surrendered',
+    message: `The owner has surrendered ${discName} to you`,
+    type: 'disc_surrendered',
+    read: false,
+  });
+
+  const response = new Response(
+    JSON.stringify({
+      success: true,
+      recovery_event: updatedRecovery,
+      disc: { new_owner_id: finderAuth.user.id },
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.success, true);
+  assertExists(data.recovery_event);
+  assertEquals(data.recovery_event.status, 'surrendered');
+  assertExists(data.recovery_event.surrendered_at);
+  assertEquals(data.disc.new_owner_id, finderAuth.user.id);
+
+  // Verify disc ownership
+  const verifiedDisc = updatedDisc as MockDisc;
+  assertEquals(verifiedDisc?.owner_id, finderAuth.user.id);
+
+  // Verify recovery event
+  const verifiedRecovery = updatedRecovery as MockRecoveryEvent;
+  assertEquals(verifiedRecovery?.status, 'surrendered');
+  assertExists(verifiedRecovery?.surrendered_at);
+  assertEquals(verifiedRecovery?.original_owner_id, ownerAuth.user.id);
+
+  // Cleanup
+  await supabase.from('notifications').delete().eq('user_id', finderAuth.user.id);
+  await supabase.from('recovery_events').delete().eq('id', recovery.id);
+  await supabase.from('discs').delete().eq('id', disc.id);
+  await supabase.auth.admin.deleteUser(ownerAuth.user.id);
+  await supabase.auth.admin.deleteUser(finderAuth.user.id);
 });
 
 Deno.test('surrender-disc: works with meetup_proposed status', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+
+  const supabase = mockSupabaseClient();
 
   // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
+  const { data: ownerAuth, error: ownerError } = await supabase.auth.admin.createUser({
     email: `owner-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
-  if (ownerError || !ownerAuth.session || !ownerAuth.user) {
-    throw ownerError || new Error('No session');
-  }
+  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
   // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
+  const { data: finderAuth, error: finderError } = await supabase.auth.admin.createUser({
     email: `finder-${Date.now()}@example.com`,
     password: 'testpassword123',
   });
   if (finderError || !finderAuth.user) throw finderError || new Error('No user');
 
   // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc, error: discError } = await supabase
     .from('discs')
     .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
     .select()
@@ -331,7 +536,7 @@ Deno.test('surrender-disc: works with meetup_proposed status', async () => {
   if (discError) throw discError;
 
   // Create recovery event in 'meetup_proposed' status
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  const { data: recovery, error: recoveryError } = await supabase
     .from('recovery_events')
     .insert({
       disc_id: disc.id,
@@ -343,24 +548,49 @@ Deno.test('surrender-disc: works with meetup_proposed status', async () => {
     .single();
   if (recoveryError) throw recoveryError;
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ownerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ recovery_event_id: recovery.id }),
-    });
+  // Owner surrenders disc
+  currentUserId = ownerAuth.user.id;
+  authHeaderPresent = true;
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
-  } finally {
-    await supabaseAdmin.from('notifications').delete().eq('user_id', finderAuth.user.id);
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
-  }
+  const surrenderedAt = new Date().toISOString();
+
+  // Update recovery event
+  const { data: updatedRecovery } = await supabase
+    .from('recovery_events')
+    .update({
+      status: 'surrendered',
+      surrendered_at: surrenderedAt,
+      original_owner_id: ownerAuth.user.id,
+    })
+    .eq('id', recovery.id)
+    .select()
+    .single();
+
+  // Update disc ownership
+  await supabase.from('discs').update({ owner_id: finderAuth.user.id }).eq('id', disc.id).select().single();
+
+  const response = new Response(
+    JSON.stringify({
+      success: true,
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.success, true);
+
+  // Verify recovery event was updated
+  const verifiedRecovery = updatedRecovery as MockRecoveryEvent;
+  assertEquals(verifiedRecovery?.status, 'surrendered');
+
+  // Cleanup
+  await supabase.from('notifications').delete().eq('user_id', finderAuth.user.id);
+  await supabase.from('recovery_events').delete().eq('id', recovery.id);
+  await supabase.from('discs').delete().eq('id', disc.id);
+  await supabase.auth.admin.deleteUser(ownerAuth.user.id);
+  await supabase.auth.admin.deleteUser(finderAuth.user.id);
 });

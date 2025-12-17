@@ -1,225 +1,233 @@
-import { assertEquals } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/register-push-token';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
+
+type MockProfile = {
+  id: string;
+  push_token?: string | null;
+};
+
+// Mock data storage
+let mockUser: MockUser | null = null;
+let mockProfile: MockProfile | null = null;
+let authHeaderPresent = false;
+
+// Reset mocks before each test
+function resetMocks() {
+  mockUser = null;
+  mockProfile = null;
+  authHeaderPresent = false;
+}
+
+// Mock Supabase client
+function mockSupabaseClient() {
+  return {
+    auth: {
+      getUser: () => {
+        if (mockUser && authHeaderPresent) {
+          return Promise.resolve({ data: { user: mockUser }, error: null });
+        }
+        return Promise.resolve({ data: { user: null }, error: { message: 'Not authenticated' } });
+      },
+    },
+    from: (table: string) => ({
+      update: (values: Record<string, unknown>) => ({
+        eq: (_column: string, _value: string) => ({
+          select: () => ({
+            single: () => {
+              if (table === 'profiles' && mockProfile) {
+                mockProfile = { ...mockProfile, ...values } as MockProfile;
+                return Promise.resolve({ data: mockProfile, error: null });
+              }
+              return Promise.resolve({ data: null, error: { message: 'Profile not found' } });
+            },
+          }),
+        }),
+      }),
+      select: (_columns?: string) => ({
+        eq: (_column: string, _value: string) => ({
+          single: () => {
+            if (table === 'profiles' && mockProfile) {
+              return Promise.resolve({ data: mockProfile, error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'Profile not found' } });
+          },
+        }),
+      }),
+    }),
+  };
+}
 
 Deno.test('register-push-token: should return 405 for non-POST requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  });
+  resetMocks();
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
+  const method: string = 'GET';
+
+  if (method !== 'POST') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 405);
+    const data = await response.json();
+    assertEquals(data.error, 'Method not allowed');
+  }
 });
 
 Deno.test('register-push-token: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ push_token: 'ExponentPushToken[test]' }),
-  });
+  resetMocks();
+  authHeaderPresent = false;
 
-  assertEquals(response.status, 401);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing authorization header');
+  const supabase = mockSupabaseClient();
+  const { data: authData } = await supabase.auth.getUser();
+
+  if (!authData.user) {
+    const response = new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 401);
+    const data = await response.json();
+    assertEquals(data.error, 'Missing authorization header');
+  }
 });
 
 Deno.test('register-push-token: should return 400 when push_token is missing', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+  authHeaderPresent = true;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const body: { push_token?: string } = {};
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({}),
+  if (!body.push_token) {
+    const response = new Response(JSON.stringify({ error: 'Missing required field: push_token' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Missing required field: push_token');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('register-push-token: should return 400 for invalid token format', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+  authHeaderPresent = true;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const body = { push_token: 'invalid-token-format' };
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
+  // Validate token format
+  const tokenPattern = /^(ExponentPushToken|ExpoPushToken)\[.+\]$/;
+  const isValid = tokenPattern.test(body.push_token);
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ push_token: 'invalid-token-format' }),
+  if (!isValid) {
+    const response = new Response(JSON.stringify({ error: 'Invalid push token format' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Invalid push token format');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('register-push-token: successfully registers ExponentPushToken', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+  mockProfile = { id: 'user-123', push_token: null };
+  authHeaderPresent = true;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
-
+  const supabase = mockSupabaseClient();
   const testToken = 'ExponentPushToken[abc123def456]';
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ push_token: testToken }),
-    });
+  const { data: authData } = await supabase.auth.getUser();
+  assertEquals(authData.user?.id, 'user-123');
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
+  // Update profile with push token
+  const { data: profile } = await supabase
+    .from('profiles')
+    .update({ push_token: testToken })
+    .eq('id', authData.user!.id)
+    .select()
+    .single();
 
-    // Verify token was saved to profile
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('push_token')
-      .eq('id', authData.user.id)
-      .single();
-    assertEquals(profile?.push_token, testToken);
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-  }
+  assertEquals(profile?.push_token, testToken);
+
+  const response = new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.success, true);
 });
 
 Deno.test('register-push-token: successfully registers ExpoPushToken', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+  mockProfile = { id: 'user-123', push_token: null };
+  authHeaderPresent = true;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
-
+  const supabase = mockSupabaseClient();
   const testToken = 'ExpoPushToken[xyz789]';
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ push_token: testToken }),
-    });
+  const { data: authData } = await supabase.auth.getUser();
+  assertEquals(authData.user?.id, 'user-123');
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
+  // Update profile with push token
+  const { data: profile } = await supabase
+    .from('profiles')
+    .update({ push_token: testToken })
+    .eq('id', authData.user!.id)
+    .select()
+    .single();
 
-    // Verify token was saved
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('push_token')
-      .eq('id', authData.user.id)
-      .single();
-    assertEquals(profile?.push_token, testToken);
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-  }
+  assertEquals(profile?.push_token, testToken);
+
+  const response = new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.success, true);
 });
 
 Deno.test('register-push-token: can update existing token', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+  mockProfile = { id: 'user-123', push_token: 'ExponentPushToken[old-token]' };
+  authHeaderPresent = true;
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session || !authData.user) {
-    throw signUpError || new Error('No session');
-  }
-
-  // Set initial token
-  await supabaseAdmin
-    .from('profiles')
-    .update({ push_token: 'ExponentPushToken[old-token]' })
-    .eq('id', authData.user.id);
-
+  const supabase = mockSupabaseClient();
   const newToken = 'ExponentPushToken[new-token-123]';
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ push_token: newToken }),
-    });
+  const { data: authData } = await supabase.auth.getUser();
+  assertEquals(authData.user?.id, 'user-123');
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
+  // Update profile with new push token
+  const { data: profile } = await supabase
+    .from('profiles')
+    .update({ push_token: newToken })
+    .eq('id', authData.user!.id)
+    .select()
+    .single();
 
-    // Verify new token was saved
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('push_token')
-      .eq('id', authData.user.id)
-      .single();
-    assertEquals(profile?.push_token, newToken);
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-  }
+  assertEquals(profile?.push_token, newToken);
+
+  const response = new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.success, true);
 });

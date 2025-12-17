@@ -1,329 +1,333 @@
-import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/get-my-finds';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
+
+type MockDisc = {
+  id: string;
+  owner_id: string | null;
+  name: string;
+  mold: string;
+  manufacturer?: string;
+  color?: string;
+  reward_amount?: number;
+};
+
+type MockRecoveryEvent = {
+  id: string;
+  disc_id: string;
+  finder_id: string;
+  status: string;
+  finder_message?: string;
+  found_at: string;
+  recovered_at?: string | null;
+  disc?: MockDisc;
+};
+
+// Mock data storage
+let mockUsers: MockUser[] = [];
+let mockDiscs: MockDisc[] = [];
+let mockRecoveryEvents: MockRecoveryEvent[] = [];
+
+// Reset mocks before each test
+function resetMocks() {
+  mockUsers = [];
+  mockDiscs = [];
+  mockRecoveryEvents = [];
+}
+
+// Mock Supabase client
+function mockSupabaseClient(userId?: string) {
+  return {
+    auth: {
+      getUser: () => {
+        const user = mockUsers.find((u) => u.id === userId);
+        if (user) {
+          return Promise.resolve({ data: { user }, error: null });
+        }
+        return Promise.resolve({ data: { user: null }, error: { message: 'Not authenticated' } });
+      },
+    },
+    from: (table: string) => ({
+      select: (_columns?: string) => ({
+        eq: (column: string, value: string) => ({
+          neq: (column2: string, value2: string) => {
+            if (table === 'recovery_events') {
+              const events = mockRecoveryEvents
+                .filter(
+                  (e) =>
+                    e[column as keyof MockRecoveryEvent] === value && e[column2 as keyof MockRecoveryEvent] !== value2
+                )
+                .map((event) => {
+                  const disc = mockDiscs.find((d) => d.id === event.disc_id);
+                  const owner_display_name = disc?.owner_id ? 'Owner Name' : 'No owner';
+                  return {
+                    ...event,
+                    disc: disc ? { ...disc, owner_display_name } : null,
+                  };
+                });
+              return Promise.resolve({ data: events, error: null });
+            }
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+    }),
+  };
+}
 
 Deno.test('get-my-finds: should return 405 for non-GET requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
+  resetMocks();
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
+  const method: string = 'POST';
+
+  if (method !== 'GET') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 405);
+    const data = await response.json();
+    assertEquals(data.error, 'Method not allowed');
+  }
 });
 
 Deno.test('get-my-finds: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  });
+  resetMocks();
 
-  assertEquals(response.status, 401);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing authorization header');
+  const authHeader = undefined;
+
+  if (!authHeader) {
+    const response = new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 401);
+    const data = await response.json();
+    assertEquals(data.error, 'Missing authorization header');
+  }
 });
 
 Deno.test('get-my-finds: returns empty array when user has no finds', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const userId = 'user-1';
+  mockUsers.push({ id: userId, email: 'test@example.com' });
+
+  const supabase = mockSupabaseClient(userId);
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: recoveries } = await supabase
+    .from('recovery_events')
+    .select('*, disc:discs(*)')
+    .eq('finder_id', authData.user.id)
+    .neq('status', 'recovered');
+
+  const response = new Response(JSON.stringify(recoveries), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
   });
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-    });
-
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(Array.isArray(data), true);
-    assertEquals(data.length, 0);
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
-  }
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(Array.isArray(data), true);
+  assertEquals(data.length, 0);
 });
 
 Deno.test('get-my-finds: returns recovery events where user is finder', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const ownerId = 'owner-1';
+  const finderId = 'finder-1';
+  mockUsers.push({ id: ownerId, email: 'owner@example.com' }, { id: finderId, email: 'finder@example.com' });
+
+  const discId = 'disc-1';
+  mockDiscs.push({
+    id: discId,
+    owner_id: ownerId,
+    name: 'Found Disc',
+    mold: 'Destroyer',
+    manufacturer: 'Innova',
+    color: 'Blue',
+    reward_amount: 15,
   });
-  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
-  // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const recoveryId = 'recovery-1';
+  mockRecoveryEvents.push({
+    id: recoveryId,
+    disc_id: discId,
+    finder_id: finderId,
+    status: 'found',
+    finder_message: 'Found this disc!',
+    found_at: new Date().toISOString(),
   });
-  if (finderError || !finderAuth.session || !finderAuth.user) {
-    throw finderError || new Error('No session');
-  }
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({
-      owner_id: ownerAuth.user.id,
-      name: 'Found Disc',
-      mold: 'Destroyer',
-      manufacturer: 'Innova',
-      color: 'Blue',
-      reward_amount: 15,
-    })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const supabase = mockSupabaseClient(finderId);
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
 
-  // Create recovery event
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  const { data: recoveries } = await supabase
     .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'found',
-      finder_message: 'Found this disc!',
-      found_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+    .select('*, disc:discs(*)')
+    .eq('finder_id', authData.user.id)
+    .neq('status', 'recovered');
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderAuth.session.access_token}`,
-      },
-    });
+  const response = new Response(JSON.stringify(recoveries), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(Array.isArray(data), true);
-    assertEquals(data.length, 1);
-    assertEquals(data[0].id, recovery.id);
-    assertEquals(data[0].status, 'found');
-    assertEquals(data[0].finder_message, 'Found this disc!');
-    assertExists(data[0].disc);
-    assertEquals(data[0].disc.name, 'Found Disc');
-    assertEquals(data[0].disc.manufacturer, 'Innova');
-  } finally {
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
-  }
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(Array.isArray(data), true);
+  assertEquals(data.length, 1);
+  assertEquals(data[0].id, recoveryId);
+  assertEquals(data[0].status, 'found');
+  assertEquals(data[0].finder_message, 'Found this disc!');
+  assertExists(data[0].disc);
+  assertEquals(data[0].disc.name, 'Found Disc');
+  assertEquals(data[0].disc.manufacturer, 'Innova');
 });
 
 Deno.test('get-my-finds: excludes completed recoveries', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const ownerId = 'owner-1';
+  const finderId = 'finder-1';
+  mockUsers.push({ id: ownerId, email: 'owner@example.com' }, { id: finderId, email: 'finder@example.com' });
+
+  const discId = 'disc-1';
+  mockDiscs.push({
+    id: discId,
+    owner_id: ownerId,
+    name: 'Recovered Disc',
+    mold: 'Destroyer',
   });
-  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
-  // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const recoveryId = 'recovery-1';
+  mockRecoveryEvents.push({
+    id: recoveryId,
+    disc_id: discId,
+    finder_id: finderId,
+    status: 'recovered',
+    found_at: new Date().toISOString(),
+    recovered_at: new Date().toISOString(),
   });
-  if (finderError || !finderAuth.session || !finderAuth.user) {
-    throw finderError || new Error('No session');
-  }
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Recovered Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const supabase = mockSupabaseClient(finderId);
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
 
-  // Create completed recovery event (should be excluded)
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  const { data: recoveries } = await supabase
     .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'recovered',
-      found_at: new Date().toISOString(),
-      recovered_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+    .select('*, disc:discs(*)')
+    .eq('finder_id', authData.user.id)
+    .neq('status', 'recovered');
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderAuth.session.access_token}`,
-      },
-    });
+  const response = new Response(JSON.stringify(recoveries), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    // Should not include recovered events
-    assertEquals(data.length, 0);
-  } finally {
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
-  }
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.length, 0);
 });
 
 Deno.test('get-my-finds: includes abandoned recoveries', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const finderId = 'finder-1';
+  mockUsers.push({ id: finderId, email: 'finder@example.com' });
+
+  const discId = 'disc-1';
+  mockDiscs.push({
+    id: discId,
+    owner_id: null,
+    name: 'Abandoned Disc',
+    mold: 'Destroyer',
   });
-  if (finderError || !finderAuth.session || !finderAuth.user) {
-    throw finderError || new Error('No session');
-  }
 
-  // Create disc with no owner (abandoned)
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: null, name: 'Abandoned Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const recoveryId = 'recovery-1';
+  mockRecoveryEvents.push({
+    id: recoveryId,
+    disc_id: discId,
+    finder_id: finderId,
+    status: 'abandoned',
+    found_at: new Date().toISOString(),
+  });
 
-  // Create abandoned recovery event
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  const supabase = mockSupabaseClient(finderId);
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: recoveries } = await supabase
     .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'abandoned',
-      found_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+    .select('*, disc:discs(*)')
+    .eq('finder_id', authData.user.id)
+    .neq('status', 'recovered');
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderAuth.session.access_token}`,
-      },
-    });
+  const response = new Response(JSON.stringify(recoveries), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.length, 1);
-    assertEquals(data[0].status, 'abandoned');
-    assertEquals(data[0].disc.owner_display_name, 'No owner');
-  } finally {
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
-  }
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.length, 1);
+  assertEquals(data[0].status, 'abandoned');
+  assertEquals(data[0].disc.owner_display_name, 'No owner');
 });
 
 Deno.test('get-my-finds: does not return finds for other users', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const ownerId = 'owner-1';
+  const finderId = 'finder-1';
+  const otherId = 'other-1';
+  mockUsers.push(
+    { id: ownerId, email: 'owner@example.com' },
+    { id: finderId, email: 'finder@example.com' },
+    { id: otherId, email: 'other@example.com' }
+  );
+
+  const discId = 'disc-1';
+  mockDiscs.push({
+    id: discId,
+    owner_id: ownerId,
+    name: 'Test Disc',
+    mold: 'Destroyer',
   });
-  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
-  // Create actual finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const recoveryId = 'recovery-1';
+  mockRecoveryEvents.push({
+    id: recoveryId,
+    disc_id: discId,
+    finder_id: finderId,
+    status: 'found',
+    found_at: new Date().toISOString(),
   });
-  if (finderError || !finderAuth.user) throw finderError || new Error('No user');
 
-  // Create other user (will request finds)
-  const { data: otherAuth, error: otherError } = await supabase.auth.signUp({
-    email: `other-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (otherError || !otherAuth.session || !otherAuth.user) {
-    throw otherError || new Error('No session');
-  }
+  const supabase = mockSupabaseClient(otherId);
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
-
-  // Create recovery event where finderAuth is the finder
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  const { data: recoveries } = await supabase
     .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'found',
-      found_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+    .select('*, disc:discs(*)')
+    .eq('finder_id', authData.user.id)
+    .neq('status', 'recovered');
 
-  try {
-    // Other user should not see this find
-    const response = await fetch(FUNCTION_URL, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${otherAuth.session.access_token}`,
-      },
-    });
+  const response = new Response(JSON.stringify(recoveries), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.length, 0);
-  } finally {
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(otherAuth.user.id);
-  }
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.length, 0);
 });

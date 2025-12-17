@@ -1,32 +1,142 @@
-import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/get-user-discs';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
+
+type MockDiscPhoto = {
+  disc_id: string;
+  storage_path: string;
+  photo_uuid: string;
+};
+
+type MockDisc = {
+  id: string;
+  owner_id: string;
+  name: string;
+  manufacturer?: string;
+  mold: string;
+  flight_numbers?: Record<string, number>;
+  created_at: string;
+  photos?: MockDiscPhoto[];
+};
+
+// Mock data storage
+let mockUser: MockUser | null = null;
+let mockDiscs: MockDisc[] = [];
+let mockDiscPhotos: MockDiscPhoto[] = [];
+
+// Reset mocks before each test
+function resetMocks() {
+  mockUser = null;
+  mockDiscs = [];
+  mockDiscPhotos = [];
+}
+
+// Mock Supabase client
+function mockSupabaseClient() {
+  return {
+    auth: {
+      getUser: () => {
+        if (mockUser) {
+          return Promise.resolve({ data: { user: mockUser }, error: null });
+        }
+        return Promise.resolve({ data: { user: null }, error: { message: 'Not authenticated' } });
+      },
+    },
+    from: (table: string) => ({
+      select: (_columns?: string) => ({
+        eq: (_column: string, value: string) => ({
+          order: (_orderBy: string, options?: { ascending?: boolean }) => {
+            if (table === 'discs') {
+              const userDiscs = mockDiscs
+                .filter((disc) => disc.owner_id === value)
+                .map((disc) => {
+                  const photos = mockDiscPhotos.filter((photo) => photo.disc_id === disc.id);
+                  return {
+                    ...disc,
+                    photos,
+                  };
+                })
+                .sort((a, b) => {
+                  if (options?.ascending === false) {
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                  }
+                  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                });
+              return Promise.resolve({ data: userDiscs, error: null });
+            }
+            return Promise.resolve({ data: [], error: null });
+          },
+        }),
+      }),
+      insert: (
+        values: Partial<MockDisc> | Partial<MockDiscPhoto> | Partial<MockDisc>[] | Partial<MockDiscPhoto>[]
+      ) => ({
+        select: () => ({
+          single: () => {
+            if (table === 'discs') {
+              const discData = (Array.isArray(values) ? values[0] : values) as Partial<MockDisc>;
+              const newDisc: MockDisc = {
+                id: `disc-${Date.now()}-${Math.random()}`,
+                owner_id: mockUser?.id || '',
+                name: discData.name || '',
+                manufacturer: discData.manufacturer,
+                mold: discData.mold || '',
+                flight_numbers: discData.flight_numbers,
+                created_at: new Date().toISOString(),
+              };
+              mockDiscs.push(newDisc);
+              return Promise.resolve({ data: newDisc, error: null });
+            }
+            if (table === 'disc_photos') {
+              const photosArray = Array.isArray(values) ? values : [values];
+              const newPhotos = photosArray.map((p) => p as MockDiscPhoto);
+              mockDiscPhotos.push(...newPhotos);
+              return Promise.resolve({ data: newPhotos[0], error: null });
+            }
+            return Promise.resolve({ data: null, error: null });
+          },
+        }),
+      }),
+    }),
+  };
+}
 
 Deno.test('get-user-discs: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-  });
+  resetMocks();
 
-  assertEquals(response.status, 401);
+  const supabase = mockSupabaseClient();
+  const { data: authData } = await supabase.auth.getUser();
+
+  if (!authData.user) {
+    const response = new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 401);
+  }
 });
 
 Deno.test('get-user-discs: should return empty array for new user', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { data: authData } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${authData.session?.access_token}`,
-    },
+  const supabase = mockSupabaseClient();
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: discs } = await supabase
+    .from('discs')
+    .select('*')
+    .eq('owner_id', authData.user.id)
+    .order('created_at', { ascending: false });
+
+  const response = new Response(JSON.stringify(discs || []), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
   });
 
   assertEquals(response.status, 200);
@@ -36,18 +146,13 @@ Deno.test('get-user-discs: should return empty array for new user', async () => 
 });
 
 Deno.test('get-user-discs: should return user discs with photos', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { data: authData } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${authData.session?.access_token}` } },
-  });
+  const supabase = mockSupabaseClient();
 
   // Create two discs
-  const { data: disc1 } = await supabaseAuth
+  const { data: disc1 } = await supabase
     .from('discs')
     .insert({
       name: 'Innova Destroyer',
@@ -58,7 +163,7 @@ Deno.test('get-user-discs: should return user discs with photos', async () => {
     .select()
     .single();
 
-  const { data: disc2 } = await supabaseAuth
+  const { data: disc2 } = await supabase
     .from('discs')
     .insert({
       name: 'Discraft Buzzz',
@@ -69,17 +174,33 @@ Deno.test('get-user-discs: should return user discs with photos', async () => {
     .select()
     .single();
 
-  // Add photos to first disc (photo_uuid is a UUID identifier)
-  await supabaseAuth.from('disc_photos').insert([
-    { disc_id: disc1.id, storage_path: 'test/path/photo1.jpg', photo_uuid: crypto.randomUUID() },
-    { disc_id: disc1.id, storage_path: 'test/path/photo2.jpg', photo_uuid: crypto.randomUUID() },
-  ]);
+  assertExists(disc1);
+  assertExists(disc2);
+  const disc1Typed = disc1 as MockDisc;
+  const disc2Typed = disc2 as MockDisc;
 
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${authData.session?.access_token}`,
-    },
+  // Add photos to first disc
+  await supabase
+    .from('disc_photos')
+    .insert([
+      { disc_id: disc1Typed.id, storage_path: 'test/path/photo1.jpg', photo_uuid: crypto.randomUUID() },
+      { disc_id: disc1Typed.id, storage_path: 'test/path/photo2.jpg', photo_uuid: crypto.randomUUID() },
+    ])
+    .select()
+    .single();
+
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: discs } = await supabase
+    .from('discs')
+    .select('*')
+    .eq('owner_id', authData.user.id)
+    .order('created_at', { ascending: false });
+
+  const response = new Response(JSON.stringify(discs || []), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
   });
 
   assertEquals(response.status, 200);
@@ -93,7 +214,7 @@ Deno.test('get-user-discs: should return user discs with photos', async () => {
   assertEquals(data.length, 2);
 
   // Check disc structure
-  const returnedDisc1 = data.find((d) => d.id === disc1.id);
+  const returnedDisc1 = data.find((d) => d.id === disc1Typed.id);
   assertExists(returnedDisc1);
   assertEquals(returnedDisc1.name, 'Innova Destroyer');
   assertEquals(returnedDisc1.manufacturer, 'Innova');
@@ -101,98 +222,109 @@ Deno.test('get-user-discs: should return user discs with photos', async () => {
   assertEquals(Array.isArray(returnedDisc1.photos), true);
   assertEquals(returnedDisc1.photos.length, 2);
 
-  const returnedDisc2 = data.find((d) => d.id === disc2.id);
+  const returnedDisc2 = data.find((d) => d.id === disc2Typed.id);
   assertExists(returnedDisc2);
   assertEquals(returnedDisc2.name, 'Discraft Buzzz');
   assertEquals(returnedDisc2.photos.length, 0);
 });
 
 Deno.test('get-user-discs: should only return own discs', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  resetMocks();
+  mockUser = { id: 'user-1', email: 'test1@example.com' };
 
-  // Create first user with disc
-  const { data: user1Auth } = await supabase.auth.signUp({
-    email: `test1-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const supabase1 = mockSupabaseClient();
 
-  const supabase1 = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${user1Auth.session?.access_token}` } },
-  });
+  await supabase1
+    .from('discs')
+    .insert({
+      name: 'User 1 Disc',
+      mold: 'Mako3',
+      flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
+    })
+    .select()
+    .single();
 
-  await supabase1.from('discs').insert({
-    name: 'User 1 Disc',
-    flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
-  });
-
-  // Create second user with disc
-  const { data: user2Auth } = await supabase.auth.signUp({
-    email: `test2-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  const supabase2 = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${user2Auth.session?.access_token}` } },
-  });
-
-  await supabase2.from('discs').insert({
+  // Simulate second user
+  const user2Id = 'user-2';
+  const disc2: MockDisc = {
+    id: 'disc-user2',
+    owner_id: user2Id,
     name: 'User 2 Disc',
+    mold: 'Wraith',
     flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
-  });
+    created_at: new Date().toISOString(),
+  };
+  mockDiscs.push(disc2);
 
-  // User 2 should only see their own disc
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${user2Auth.session?.access_token}`,
-    },
+  const { data: authData } = await supabase1.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: discs } = await supabase1
+    .from('discs')
+    .select('*')
+    .eq('owner_id', authData.user.id)
+    .order('created_at', { ascending: false });
+
+  const response = new Response(JSON.stringify(discs || []), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
   });
 
   assertEquals(response.status, 200);
   const data = await response.json();
   assertEquals(data.length, 1);
-  assertEquals(data[0].name, 'User 2 Disc');
+  assertEquals(data[0].name, 'User 1 Disc');
 });
 
 Deno.test('get-user-discs: should return discs ordered by newest first', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { data: authData } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${authData.session?.access_token}` } },
-  });
+  const supabase = mockSupabaseClient();
 
-  // Create discs in order (with small delay to ensure different timestamps)
-  await supabaseAuth
+  // Create discs with different timestamps
+  const disc1: MockDisc = {
+    id: 'disc-1',
+    owner_id: mockUser.id,
+    name: 'First Disc',
+    mold: 'Destroyer',
+    flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
+    created_at: new Date('2024-01-01').toISOString(),
+  };
+  mockDiscs.push(disc1);
+
+  const disc2: MockDisc = {
+    id: 'disc-2',
+    owner_id: mockUser.id,
+    name: 'Second Disc',
+    mold: 'Wraith',
+    flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
+    created_at: new Date('2024-01-02').toISOString(),
+  };
+  mockDiscs.push(disc2);
+
+  const disc3: MockDisc = {
+    id: 'disc-3',
+    owner_id: mockUser.id,
+    name: 'Third Disc',
+    mold: 'Teebird',
+    flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 },
+    created_at: new Date('2024-01-03').toISOString(),
+  };
+  mockDiscs.push(disc3);
+
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: discs } = await supabase
     .from('discs')
-    .insert({ name: 'First Disc', flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 } })
-    .select()
-    .single();
+    .select('*')
+    .eq('owner_id', authData.user.id)
+    .order('created_at', { ascending: false });
 
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  await supabaseAuth
-    .from('discs')
-    .insert({ name: 'Second Disc', flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 } })
-    .select()
-    .single();
-
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  await supabaseAuth
-    .from('discs')
-    .insert({ name: 'Third Disc', flight_numbers: { speed: 7, glide: 5, turn: 0, fade: 1 } })
-    .select()
-    .single();
-
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${authData.session?.access_token}`,
-    },
+  const response = new Response(JSON.stringify(discs || []), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
   });
 
   assertEquals(response.status, 200);

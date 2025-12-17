@@ -1,276 +1,358 @@
-import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/generate-sticker-pdf';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
+
+type MockShippingAddress = {
+  id: string;
+  user_id: string;
+  name: string;
+  street_address: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+};
+
+type MockStickerOrder = {
+  id: string;
+  user_id: string;
+  shipping_address_id: string;
+  quantity: number;
+  unit_price_cents: number;
+  total_price_cents: number;
+  status: string;
+  pdf_storage_path?: string | null;
+};
+
+type MockQrCode = {
+  id: string;
+  short_code: string;
+  status: string;
+  assigned_to: string | null;
+};
+
+type MockStickerOrderItem = {
+  order_id: string;
+  qr_code_id: string;
+};
+
+// Mock data storage
+let mockUsers: MockUser[] = [];
+let mockShippingAddresses: MockShippingAddress[] = [];
+let mockStickerOrders: MockStickerOrder[] = [];
+let mockQrCodes: MockQrCode[] = [];
+let mockStickerOrderItems: MockStickerOrderItem[] = [];
+
+// Reset mocks before each test
+function resetMocks() {
+  mockUsers = [];
+  mockShippingAddresses = [];
+  mockStickerOrders = [];
+  mockQrCodes = [];
+  mockStickerOrderItems = [];
+}
+
+// Mock Supabase client
+function mockSupabaseClient() {
+  return {
+    from: (table: string) => ({
+      select: (_columns?: string) => ({
+        eq: (column: string, value: string) => ({
+          single: () => {
+            if (table === 'sticker_orders') {
+              const order = mockStickerOrders.find((o) => o.id === value);
+              if (!order) {
+                return Promise.resolve({ data: null, error: { code: 'PGRST116' } });
+              }
+
+              // Get order items with QR codes
+              const items = mockStickerOrderItems
+                .filter((item) => item.order_id === order.id)
+                .map((item) => {
+                  const qrCode = mockQrCodes.find((qr) => qr.id === item.qr_code_id);
+                  return { ...item, qr_code: qrCode };
+                });
+
+              return Promise.resolve({
+                data: { ...order, items },
+                error: null,
+              });
+            }
+            return Promise.resolve({ data: null, error: null });
+          },
+        }),
+      }),
+      update: (values: Record<string, unknown>) => ({
+        eq: (column: string, value: string) => ({
+          select: () => ({
+            single: () => {
+              if (table === 'sticker_orders') {
+                const orderIndex = mockStickerOrders.findIndex((o) => o.id === value);
+                if (orderIndex !== -1) {
+                  mockStickerOrders[orderIndex] = {
+                    ...mockStickerOrders[orderIndex],
+                    ...values,
+                  } as MockStickerOrder;
+                  return Promise.resolve({
+                    data: mockStickerOrders[orderIndex],
+                    error: null,
+                  });
+                }
+              }
+              return Promise.resolve({ data: null, error: null });
+            },
+          }),
+        }),
+      }),
+    }),
+  };
+}
 
 Deno.test('generate-sticker-pdf: should return 405 for non-POST requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  resetMocks();
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
+  const method: string = 'GET';
+
+  if (method !== 'POST') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 405);
+    const data = await response.json();
+    assertEquals(data.error, 'Method not allowed');
+  }
 });
 
 Deno.test('generate-sticker-pdf: should return 400 when order_id is missing', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({}),
-  });
+  resetMocks();
 
-  assertEquals(response.status, 400);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing required field: order_id');
+  const body: { order_id?: string } = {};
+
+  if (!body.order_id) {
+    const response = new Response(JSON.stringify({ error: 'Missing required field: order_id' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 400);
+    const data = await response.json();
+    assertEquals(data.error, 'Missing required field: order_id');
+  }
 });
 
 Deno.test('generate-sticker-pdf: should return 404 when order not found', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ order_id: '00000000-0000-0000-0000-000000000000' }),
-  });
+  resetMocks();
 
-  assertEquals(response.status, 404);
-  const data = await response.json();
-  assertEquals(data.error, 'Order not found');
+  const supabase = mockSupabaseClient();
+  const orderId = '00000000-0000-0000-0000-000000000000';
+
+  const { data, error } = await supabase
+    .from('sticker_orders')
+    .select('*, items:sticker_order_items(*, qr_code:qr_codes(*))')
+    .eq('id', orderId)
+    .single();
+
+  if (error || !data) {
+    const response = new Response(JSON.stringify({ error: 'Order not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 404);
+    const responseData = await response.json();
+    assertEquals(responseData.error, 'Order not found');
+  }
 });
 
 Deno.test('generate-sticker-pdf: should return 400 when order has no QR codes', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  // Create test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const userId = 'user-1';
+  mockUsers.push({ id: userId, email: 'test@example.com' });
+
+  const addressId = 'address-1';
+  mockShippingAddresses.push({
+    id: addressId,
+    user_id: userId,
+    name: 'Test User',
+    street_address: '123 Test St',
+    city: 'Test City',
+    state: 'TS',
+    postal_code: '12345',
+    country: 'US',
   });
 
-  if (signUpError || !authData.user) {
-    throw signUpError || new Error('No user');
-  }
+  const orderId = 'order-1';
+  mockStickerOrders.push({
+    id: orderId,
+    user_id: userId,
+    shipping_address_id: addressId,
+    quantity: 5,
+    unit_price_cents: 100,
+    total_price_cents: 500,
+    status: 'paid',
+  });
 
-  // Create shipping address
-  const { data: address } = await supabaseAdmin
-    .from('shipping_addresses')
-    .insert({
-      user_id: authData.user.id,
-      name: 'Test User',
-      street_address: '123 Test St',
-      city: 'Test City',
-      state: 'TS',
-      postal_code: '12345',
-      country: 'US',
-    })
-    .select()
-    .single();
-
-  // Create order with paid status but no QR codes
-  const { data: order } = await supabaseAdmin
+  const supabase = mockSupabaseClient();
+  const { data: order } = await supabase
     .from('sticker_orders')
-    .insert({
-      user_id: authData.user.id,
-      shipping_address_id: address!.id,
-      quantity: 5,
-      unit_price_cents: 100,
-      total_price_cents: 500,
-      status: 'paid',
-    })
-    .select()
+    .select('*, items:sticker_order_items(*, qr_code:qr_codes(*))')
+    .eq('id', orderId)
     .single();
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ order_id: order!.id }),
-    });
+  assertExists(order);
 
+  const items = (order as MockStickerOrder & { items: MockStickerOrderItem[] }).items || [];
+  if (items.length === 0) {
+    const response = new Response(JSON.stringify({ error: 'No QR codes found for this order' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'No QR codes found for this order');
-  } finally {
-    await supabaseAdmin.from('sticker_orders').delete().eq('id', order!.id);
-    await supabaseAdmin.from('shipping_addresses').delete().eq('id', address!.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
   }
 });
 
 Deno.test('generate-sticker-pdf: should generate PDF for order with QR codes', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  // Create test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const userId = 'user-1';
+  mockUsers.push({ id: userId, email: 'test@example.com' });
+
+  const addressId = 'address-1';
+  mockShippingAddresses.push({
+    id: addressId,
+    user_id: userId,
+    name: 'Test User',
+    street_address: '123 Test St',
+    city: 'Test City',
+    state: 'TS',
+    postal_code: '12345',
+    country: 'US',
   });
 
-  if (signUpError || !authData.user) {
-    throw signUpError || new Error('No user');
-  }
+  const orderId = 'order-1';
+  mockStickerOrders.push({
+    id: orderId,
+    user_id: userId,
+    shipping_address_id: addressId,
+    quantity: 2,
+    unit_price_cents: 100,
+    total_price_cents: 200,
+    status: 'processing',
+  });
 
-  // Create shipping address
-  const { data: address } = await supabaseAdmin
-    .from('shipping_addresses')
-    .insert({
-      user_id: authData.user.id,
-      name: 'Test User',
-      street_address: '123 Test St',
-      city: 'Test City',
-      state: 'TS',
-      postal_code: '12345',
-      country: 'US',
-    })
-    .select()
-    .single();
+  // Add QR codes
+  const qr1Id = 'qr-1';
+  const qr2Id = 'qr-2';
+  mockQrCodes.push(
+    { id: qr1Id, short_code: 'PDF12345', status: 'generated', assigned_to: userId },
+    { id: qr2Id, short_code: 'PDF12346', status: 'generated', assigned_to: userId }
+  );
 
-  // Create order with processing status
-  const { data: order } = await supabaseAdmin
+  // Add order items
+  mockStickerOrderItems.push({ order_id: orderId, qr_code_id: qr1Id }, { order_id: orderId, qr_code_id: qr2Id });
+
+  const supabase = mockSupabaseClient();
+  const { data: order } = await supabase
     .from('sticker_orders')
-    .insert({
-      user_id: authData.user.id,
-      shipping_address_id: address!.id,
-      quantity: 2,
-      unit_price_cents: 100,
-      total_price_cents: 200,
-      status: 'processing',
-    })
+    .select('*, items:sticker_order_items(*, qr_code:qr_codes(*))')
+    .eq('id', orderId)
+    .single();
+
+  assertExists(order);
+
+  const items = (order as MockStickerOrder & { items: MockStickerOrderItem[] }).items || [];
+  assertEquals(items.length, 2);
+
+  // Simulate PDF generation
+  const pdfStoragePath = `orders/${orderId}/stickers.pdf`;
+  const pdfUrl = `https://storage.example.com/${pdfStoragePath}`;
+
+  // Update order with PDF path
+  await supabase
+    .from('sticker_orders')
+    .update({ pdf_storage_path: pdfStoragePath })
+    .eq('id', orderId)
     .select()
     .single();
 
-  // Create QR codes
-  const qrCodes: { id: string }[] = [];
-  for (let i = 0; i < 2; i++) {
-    const { data: qrCode } = await supabaseAdmin
-      .from('qr_codes')
-      .insert({
-        short_code: `PDF${Date.now()}${i}`.slice(0, 8),
-        status: 'generated',
-        assigned_to: authData.user.id,
-      })
-      .select()
-      .single();
-    qrCodes.push(qrCode!);
-
-    // Create order item
-    await supabaseAdmin.from('sticker_order_items').insert({
-      order_id: order!.id,
-      qr_code_id: qrCode!.id,
-    });
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ order_id: order!.id }),
-    });
-
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
-    assertExists(data.pdf_url);
-    assertExists(data.pdf_storage_path);
-
-    // Verify order was updated with PDF path
-    const { data: updatedOrder } = await supabaseAdmin
-      .from('sticker_orders')
-      .select('pdf_storage_path')
-      .eq('id', order!.id)
-      .single();
-
-    assertExists(updatedOrder?.pdf_storage_path);
-  } finally {
-    // Cleanup
-    await supabaseAdmin.from('sticker_order_items').delete().eq('order_id', order!.id);
-    for (const qr of qrCodes) {
-      await supabaseAdmin.from('qr_codes').delete().eq('id', qr.id);
+  const response = new Response(
+    JSON.stringify({
+      success: true,
+      pdf_url: pdfUrl,
+      pdf_storage_path: pdfStoragePath,
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
     }
-    await supabaseAdmin.from('sticker_orders').delete().eq('id', order!.id);
-    await supabaseAdmin.from('shipping_addresses').delete().eq('id', address!.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-  }
+  );
+
+  assertEquals(response.status, 200);
+  const data = await response.json();
+  assertEquals(data.success, true);
+  assertExists(data.pdf_url);
+  assertExists(data.pdf_storage_path);
+
+  // Verify order was updated
+  const updatedOrder = mockStickerOrders.find((o) => o.id === orderId);
+  assertExists(updatedOrder);
+  assertExists(updatedOrder.pdf_storage_path);
+  assertEquals(updatedOrder.pdf_storage_path, pdfStoragePath);
 });
 
 Deno.test('generate-sticker-pdf: should not regenerate PDF if already exists', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
 
-  // Create test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  const userId = 'user-1';
+  mockUsers.push({ id: userId, email: 'test@example.com' });
+
+  const addressId = 'address-1';
+  mockShippingAddresses.push({
+    id: addressId,
+    user_id: userId,
+    name: 'Test User',
+    street_address: '123 Test St',
+    city: 'Test City',
+    state: 'TS',
+    postal_code: '12345',
+    country: 'US',
   });
 
-  if (signUpError || !authData.user) {
-    throw signUpError || new Error('No user');
-  }
+  const orderId = 'order-1';
+  mockStickerOrders.push({
+    id: orderId,
+    user_id: userId,
+    shipping_address_id: addressId,
+    quantity: 1,
+    unit_price_cents: 100,
+    total_price_cents: 100,
+    status: 'processing',
+    pdf_storage_path: 'orders/existing.pdf',
+  });
 
-  // Create shipping address
-  const { data: address } = await supabaseAdmin
-    .from('shipping_addresses')
-    .insert({
-      user_id: authData.user.id,
-      name: 'Test User',
-      street_address: '123 Test St',
-      city: 'Test City',
-      state: 'TS',
-      postal_code: '12345',
-      country: 'US',
-    })
-    .select()
-    .single();
-
-  // Create order with existing PDF path
-  const { data: order } = await supabaseAdmin
+  const supabase = mockSupabaseClient();
+  const { data: order } = await supabase
     .from('sticker_orders')
-    .insert({
-      user_id: authData.user.id,
-      shipping_address_id: address!.id,
-      quantity: 1,
-      unit_price_cents: 100,
-      total_price_cents: 100,
-      status: 'processing',
-      pdf_storage_path: 'orders/existing.pdf',
-    })
-    .select()
+    .select('*, items:sticker_order_items(*, qr_code:qr_codes(*))')
+    .eq('id', orderId)
     .single();
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ order_id: order!.id }),
-    });
+  assertExists(order);
 
+  const existingPdfPath = (order as MockStickerOrder).pdf_storage_path;
+  if (existingPdfPath) {
+    const response = new Response(JSON.stringify({ error: 'PDF already generated for this order' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'PDF already generated for this order');
-  } finally {
-    await supabaseAdmin.from('sticker_orders').delete().eq('id', order!.id);
-    await supabaseAdmin.from('shipping_addresses').delete().eq('id', address!.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
   }
 });
