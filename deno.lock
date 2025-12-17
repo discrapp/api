@@ -1,6 +1,8 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/assert@*": "1.0.16",
+    "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@supabase/functions-js@*": "2.87.1",
     "npm:@eslint/js@^9.39.1": "9.39.1",
     "npm:@types/node@24": "24.10.3",
@@ -16,6 +18,15 @@
     "npm:vitest@4": "4.0.15_@types+node@24.10.3_vite@7.2.7__@types+node@24.10.3__picomatch@4.0.3"
   },
   "jsr": {
+    "@std/assert@1.0.16": {
+      "integrity": "6a7272ed1eaa77defe76e5ff63ca705d9c495077e2d5fd0126d2b53fc5bd6532",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.12": {
+      "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
+    },
     "@supabase/functions-js@2.87.1": {
       "integrity": "7cf5cb9ee949164d17645135ea4b77773e166128e3d8381c433c547de1ec2ac0",
       "dependencies": [

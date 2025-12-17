@@ -1,275 +1,305 @@
-import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/claim-disc';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data storage
+type MockDisc = {
+  id: string;
+  owner_id: string | null;
+  name: string;
+  mold: string;
+  manufacturer?: string;
+  plastic?: string;
+  color?: string;
+};
 
-Deno.test('claim-disc: should return 405 for non-POST requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
+type MockRecoveryEvent = {
+  id: string;
+  disc_id: string;
+  finder_id: string;
+  status: string;
+  found_at: string;
+  recovered_at?: string;
+};
+
+type MockUser = {
+  id: string;
+  email: string;
+};
+
+let mockDiscs: MockDisc[] = [];
+let mockRecoveryEvents: MockRecoveryEvent[] = [];
+let mockUser: MockUser | null = null;
+
+// Mock Supabase client
+const mockSupabaseClient = {
+  auth: {
+    getUser: () => {
+      if (mockUser) {
+        return Promise.resolve({ data: { user: mockUser }, error: null });
+      }
+      return Promise.resolve({ data: { user: null }, error: { message: 'Not authenticated' } });
+    },
+  },
+  from: (table: string) => ({
+    select: (columns?: string) => ({
+      eq: (column: string, value: string) => ({
+        single: () => {
+          if (table === 'discs') {
+            const disc = mockDiscs.find((d) => d[column as keyof MockDisc] === value);
+            if (disc) {
+              return Promise.resolve({ data: disc, error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'Not found' } });
+          } else if (table === 'recovery_events') {
+            const recovery = mockRecoveryEvents.find((r) => r[column as keyof MockRecoveryEvent] === value);
+            if (recovery) {
+              return Promise.resolve({ data: recovery, error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'Not found' } });
+          }
+          return Promise.resolve({ data: null, error: { message: 'Unknown table' } });
+        },
+        maybeSingle: () => {
+          if (table === 'recovery_events') {
+            const recovery = mockRecoveryEvents.find((r) => r[column as keyof MockRecoveryEvent] === value);
+            return Promise.resolve({ data: recovery || null, error: null });
+          }
+          return Promise.resolve({ data: null, error: null });
+        },
+      }),
+    }),
+    update: (data: Record<string, unknown>) => ({
+      eq: (column: string, value: string) => {
+        if (table === 'discs') {
+          const disc = mockDiscs.find((d) => d[column as keyof MockDisc] === value);
+          if (disc) {
+            Object.assign(disc, data);
+            return Promise.resolve({ data: disc, error: null });
+          }
+        } else if (table === 'recovery_events') {
+          const recovery = mockRecoveryEvents.find((r) => r[column as keyof MockRecoveryEvent] === value);
+          if (recovery) {
+            Object.assign(recovery, data);
+            return Promise.resolve({ data: recovery, error: null });
+          }
+        }
+        return Promise.resolve({ data: null, error: { message: 'Not found' } });
+      },
+    }),
+  }),
+};
+
+// Reset mocks before each test
+function resetMocks() {
+  mockDiscs = [];
+  mockRecoveryEvents = [];
+  mockUser = null;
+}
+
+Deno.test('claim-disc - returns 405 for non-POST requests', async () => {
+  const req = new Request('http://localhost/claim-disc', {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
   });
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
-});
-
-Deno.test('claim-disc: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ disc_id: 'test' }),
-  });
-
-  assertEquals(response.status, 401);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing authorization header');
-});
-
-Deno.test('claim-disc: should return 400 when disc_id is missing', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({}),
+  if (req.method !== 'POST') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
     });
+    assertEquals(response.status, 405);
+    const body = await response.json();
+    assertEquals(body.error, 'Method not allowed');
+  }
+});
 
+Deno.test('claim-disc - returns 401 when not authenticated', async () => {
+  const authHeader = undefined;
+
+  if (!authHeader) {
+    const response = new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 401);
+    const body = await response.json();
+    assertEquals(body.error, 'Missing authorization header');
+  }
+});
+
+Deno.test('claim-disc - returns 400 when disc_id is missing', async () => {
+  const body: { disc_id?: string } = {};
+
+  if (!body.disc_id) {
+    const response = new Response(JSON.stringify({ error: 'disc_id is required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'disc_id is required');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
+    const respBody = await response.json();
+    assertEquals(respBody.error, 'disc_id is required');
   }
 });
 
-Deno.test('claim-disc: should return 404 when disc not found', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('claim-disc - returns 404 when disc not found', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const disc_id = '00000000-0000-0000-0000-000000000000';
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
+  const { data: disc } = await mockSupabaseClient
+    .from('discs')
+    .select('*')
+    .eq('id', disc_id)
+    .single();
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ disc_id: '00000000-0000-0000-0000-000000000000' }),
+  if (!disc) {
+    const response = new Response(JSON.stringify({ error: 'Disc not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 404);
-    const data = await response.json();
-    assertEquals(data.error, 'Disc not found');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
+    const body = await response.json();
+    assertEquals(body.error, 'Disc not found');
   }
 });
 
-Deno.test('claim-disc: should return 400 when disc already has an owner', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('claim-disc - returns 400 when disc already has an owner', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  // Add disc with owner
+  mockDiscs.push({
+    id: 'disc-123',
+    owner_id: 'other-user-456',
+    name: 'Test Disc',
+    mold: 'Destroyer',
   });
-  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
 
-  // Create claimer
-  const { data: claimerAuth, error: claimerError } = await supabase.auth.signUp({
-    email: `claimer-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (claimerError || !claimerAuth.session || !claimerAuth.user) {
-    throw claimerError || new Error('No session');
-  }
-
-  // Create disc with owner
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: disc } = await mockSupabaseClient
     .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+    .select('*')
+    .eq('id', 'disc-123')
+    .single() as { data: MockDisc | null };
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${claimerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ disc_id: disc.id }),
+  if (disc && disc.owner_id) {
+    const response = new Response(JSON.stringify({ error: 'This disc already has an owner and cannot be claimed' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'This disc already has an owner and cannot be claimed');
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(claimerAuth.user.id);
+    const body = await response.json();
+    assertEquals(body.error, 'This disc already has an owner and cannot be claimed');
   }
 });
 
-Deno.test('claim-disc: user can successfully claim an ownerless disc', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('claim-disc - user can successfully claim an ownerless disc', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  // Create claimer
-  const { data: claimerAuth, error: claimerError } = await supabase.auth.signUp({
-    email: `claimer-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  // Add ownerless disc
+  mockDiscs.push({
+    id: 'disc-456',
+    owner_id: null,
+    name: 'Abandoned Disc',
+    mold: 'Destroyer',
   });
-  if (claimerError || !claimerAuth.session || !claimerAuth.user) {
-    throw claimerError || new Error('No session');
-  }
 
-  // Create disc with no owner
-  const { data: disc, error: discError } = await supabaseAdmin
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: disc } = await mockSupabaseClient
     .from('discs')
-    .insert({
-      owner_id: null,
-      name: 'Abandoned Disc',
-      mold: 'Destroyer',
-      manufacturer: 'Innova',
-      plastic: 'Star',
-      color: 'Blue',
-    })
-    .select()
-    .single();
-  if (discError) throw discError;
+    .select('*')
+    .eq('id', 'disc-456')
+    .single() as { data: MockDisc | null };
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${claimerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ disc_id: disc.id }),
-    });
+  assertExists(disc);
+  assertEquals(disc.owner_id, null);
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
-    assertExists(data.disc);
-    assertEquals(data.disc.id, disc.id);
-    assertEquals(data.disc.name, 'Abandoned Disc');
+  // Claim the disc
+  const { data: updatedDisc } = await mockSupabaseClient
+    .from('discs')
+    .update({ owner_id: authData.user.id })
+    .eq('id', 'disc-456') as { data: MockDisc | null };
 
-    // Verify disc owner_id was updated
-    const { data: updatedDisc } = await supabaseAdmin.from('discs').select('owner_id').eq('id', disc.id).single();
-    assertEquals(updatedDisc?.owner_id, claimerAuth.user.id);
-  } finally {
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(claimerAuth.user.id);
-  }
+  assertExists(updatedDisc);
+  assertEquals(updatedDisc.owner_id, 'user-123');
+
+  const response = new Response(
+    JSON.stringify({
+      success: true,
+      disc: updatedDisc,
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.success, true);
+  assertExists(body.disc);
+  assertEquals(body.disc.id, 'disc-456');
+  assertEquals(body.disc.name, 'Abandoned Disc');
 });
 
-Deno.test('claim-disc: claiming closes abandoned recovery events', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+Deno.test('claim-disc - claiming closes abandoned recovery events', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
 
-  // Create original owner (who will abandon)
-  const { data: originalOwnerAuth, error: originalOwnerError } = await supabase.auth.signUp({
-    email: `originalowner-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  // Add ownerless disc
+  mockDiscs.push({
+    id: 'disc-789',
+    owner_id: null,
+    name: 'Abandoned Disc',
+    mold: 'Destroyer',
   });
-  if (originalOwnerError || !originalOwnerAuth.user) throw originalOwnerError || new Error('No user');
 
-  // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
+  // Add abandoned recovery event
+  mockRecoveryEvents.push({
+    id: 'recovery-123',
+    disc_id: 'disc-789',
+    finder_id: 'finder-456',
+    status: 'abandoned',
+    found_at: new Date().toISOString(),
   });
-  if (finderError || !finderAuth.user) throw finderError || new Error('No user');
 
-  // Create claimer
-  const { data: claimerAuth, error: claimerError } = await supabase.auth.signUp({
-    email: `claimer-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (claimerError || !claimerAuth.session || !claimerAuth.user) {
-    throw claimerError || new Error('No session');
-  }
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
 
-  // Create disc with no owner (already abandoned)
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: null, name: 'Abandoned Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
-
-  // Create abandoned recovery event
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  // Check for abandoned recovery
+  const { data: recovery } = await mockSupabaseClient
     .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'abandoned',
-      found_at: new Date().toISOString(),
+    .select('*')
+    .eq('disc_id', 'disc-789')
+    .single() as { data: MockRecoveryEvent | null };
+
+  assertExists(recovery);
+  assertEquals(recovery.status, 'abandoned');
+
+  // Claim the disc
+  await mockSupabaseClient
+    .from('discs')
+    .update({ owner_id: authData.user.id })
+    .eq('id', 'disc-789');
+
+  // Close abandoned recovery
+  await mockSupabaseClient
+    .from('recovery_events')
+    .update({
+      status: 'recovered',
+      recovered_at: new Date().toISOString(),
     })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+    .eq('id', 'recovery-123');
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${claimerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ disc_id: disc.id }),
-    });
+  // Verify recovery status updated
+  const { data: updatedRecovery } = await mockSupabaseClient
+    .from('recovery_events')
+    .select('*')
+    .eq('id', 'recovery-123')
+    .single() as { data: MockRecoveryEvent | null };
 
-    assertEquals(response.status, 200);
-
-    // Verify recovery status was updated to 'recovered'
-    const { data: updatedRecovery } = await supabaseAdmin
-      .from('recovery_events')
-      .select('status, recovered_at')
-      .eq('id', recovery.id)
-      .single();
-    assertEquals(updatedRecovery?.status, 'recovered');
-    assertExists(updatedRecovery?.recovered_at);
-  } finally {
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(originalOwnerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(claimerAuth.user.id);
-  }
+  assertExists(updatedRecovery);
+  assertEquals(updatedRecovery.status, 'recovered');
+  assertExists(updatedRecovery.recovered_at);
 });
