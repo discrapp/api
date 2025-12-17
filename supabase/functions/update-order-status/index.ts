@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
   // Find order by printer_token
   const { data: order, error: orderError } = await supabaseAdmin
     .from('sticker_orders')
-    .select('id, status, order_number')
+    .select('id, status, order_number, pdf_storage_path')
     .eq('printer_token', printer_token)
     .single();
 
@@ -158,7 +158,52 @@ Deno.serve(async (req) => {
     });
   }
 
-  // TODO: Send push notification to user about status change
+  // When order is shipped, send notification and clean up PDF
+  if (status === 'shipped') {
+    const functionsUrl = `${supabaseUrl}/functions/v1`;
+
+    // Send shipping notification email to user
+    try {
+      const emailResponse = await fetch(`${functionsUrl}/send-order-shipped`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${supabaseServiceKey}`,
+        },
+        body: JSON.stringify({ order_id: order.id }),
+      });
+
+      if (!emailResponse.ok) {
+        const errorData = await emailResponse.json();
+        console.error('Failed to send shipping notification:', errorData);
+        // Continue anyway - email failure shouldn't block status update
+      } else {
+        console.log(`Shipping notification sent for order ${order.order_number}`);
+      }
+    } catch (err) {
+      console.error('Error calling send-order-shipped:', err);
+    }
+
+    // Clean up PDF from storage (no longer needed after shipping)
+    if (order.pdf_storage_path) {
+      try {
+        const { error: deleteError } = await supabaseAdmin.storage
+          .from('sticker-pdfs')
+          .remove([order.pdf_storage_path]);
+
+        if (deleteError) {
+          console.error('Failed to delete PDF:', deleteError);
+        } else {
+          console.log(`Deleted PDF: ${order.pdf_storage_path}`);
+
+          // Clear the pdf_storage_path from the order
+          await supabaseAdmin.from('sticker_orders').update({ pdf_storage_path: null }).eq('id', order.id);
+        }
+      } catch (err) {
+        console.error('Error deleting PDF:', err);
+      }
+    }
+  }
 
   return new Response(
     JSON.stringify({
