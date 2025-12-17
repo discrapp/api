@@ -125,7 +125,11 @@ Deno.test('register-push-token: successfully registers ExponentPushToken', async
     assertEquals(data.success, true);
 
     // Verify token was saved to profile
-    const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', authData.user.id).single();
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('push_token')
+      .eq('id', authData.user.id)
+      .single();
     assertEquals(profile?.push_token, testToken);
   } finally {
     await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
@@ -162,7 +166,11 @@ Deno.test('register-push-token: successfully registers ExpoPushToken', async () 
     assertEquals(data.success, true);
 
     // Verify token was saved
-    const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', authData.user.id).single();
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('push_token')
+      .eq('id', authData.user.id)
+      .single();
     assertEquals(profile?.push_token, testToken);
   } finally {
     await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
@@ -183,7 +191,10 @@ Deno.test('register-push-token: can update existing token', async () => {
   }
 
   // Set initial token
-  await supabaseAdmin.from('profiles').update({ push_token: 'ExponentPushToken[old-token]' }).eq('id', authData.user.id);
+  await supabaseAdmin
+    .from('profiles')
+    .update({ push_token: 'ExponentPushToken[old-token]' })
+    .eq('id', authData.user.id);
 
   const newToken = 'ExponentPushToken[new-token-123]';
 
@@ -202,7 +213,11 @@ Deno.test('register-push-token: can update existing token', async () => {
     assertEquals(data.success, true);
 
     // Verify new token was saved
-    const { data: profile } = await supabaseAdmin.from('profiles').select('push_token').eq('id', authData.user.id).single();
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('push_token')
+      .eq('id', authData.user.id)
+      .single();
     assertEquals(profile?.push_token, newToken);
   } finally {
     await supabaseAdmin.auth.admin.deleteUser(authData.user.id);

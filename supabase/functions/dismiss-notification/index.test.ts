@@ -180,7 +180,10 @@ Deno.test('dismiss-notification: can dismiss all notifications', async () => {
       .from('notifications')
       .select('dismissed, read')
       .eq('user_id', authData.user.id);
-    assertEquals(notifications?.every((n) => n.dismissed && n.read), true);
+    assertEquals(
+      notifications?.every((n) => n.dismissed && n.read),
+      true
+    );
   } finally {
     await supabaseAdmin.from('notifications').delete().eq('id', notif1.id);
     await supabaseAdmin.from('notifications').delete().eq('id', notif2.id);

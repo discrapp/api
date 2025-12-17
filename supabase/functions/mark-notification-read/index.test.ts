@@ -107,7 +107,11 @@ Deno.test('mark-notification-read: can mark single notification as read', async 
     assertEquals(data.notification.read, true);
 
     // Verify in database
-    const { data: updated } = await supabaseAdmin.from('notifications').select('read').eq('id', notification.id).single();
+    const { data: updated } = await supabaseAdmin
+      .from('notifications')
+      .select('read')
+      .eq('id', notification.id)
+      .single();
     assertEquals(updated?.read, true);
   } finally {
     await supabaseAdmin.from('notifications').delete().eq('id', notification.id);
@@ -175,7 +179,10 @@ Deno.test('mark-notification-read: can mark all notifications as read', async ()
       .from('notifications')
       .select('read')
       .eq('user_id', authData.user.id);
-    assertEquals(notifications?.every((n) => n.read), true);
+    assertEquals(
+      notifications?.every((n) => n.read),
+      true
+    );
   } finally {
     await supabaseAdmin.from('notifications').delete().eq('id', notif1.id);
     await supabaseAdmin.from('notifications').delete().eq('id', notif2.id);
@@ -233,7 +240,11 @@ Deno.test('mark-notification-read: cannot mark other user notification as read',
     assertEquals(data.error, 'Notification not found');
 
     // Verify notification is still unread
-    const { data: unchanged } = await supabaseAdmin.from('notifications').select('read').eq('id', notification.id).single();
+    const { data: unchanged } = await supabaseAdmin
+      .from('notifications')
+      .select('read')
+      .eq('id', notification.id)
+      .single();
     assertEquals(unchanged?.read, false);
   } finally {
     await supabaseAdmin.from('notifications').delete().eq('id', notification.id);
