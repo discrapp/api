@@ -140,9 +140,7 @@ Deno.serve(async (req) => {
   const userEmail = userData.user.email;
 
   // Handle shipping address (could be array or object from Supabase)
-  const shippingAddress = Array.isArray(order.shipping_address)
-    ? order.shipping_address[0]
-    : order.shipping_address;
+  const shippingAddress = Array.isArray(order.shipping_address) ? order.shipping_address[0] : order.shipping_address;
 
   // Format shipping address
   const addressLines = [

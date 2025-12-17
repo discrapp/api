@@ -3,7 +3,7 @@ import { assertEquals, assertExists } from 'jsr:@std/assert';
 // Mock Supabase client
 const mockSupabaseClient = {
   from: (table: string) => ({
-    select: (columns: string) => ({
+    select: (_columns: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'sticker_orders') {
@@ -134,11 +134,7 @@ Deno.test('send-order-shipped - returns 400 for missing order_id', async () => {
 });
 
 Deno.test('send-order-shipped - returns 404 for non-existent order', async () => {
-  const result = await mockSupabaseClient
-    .from('sticker_orders')
-    .select('*')
-    .eq('id', 'non-existent-id')
-    .single();
+  const result = await mockSupabaseClient.from('sticker_orders').select('*').eq('id', 'non-existent-id').single();
 
   if (!result.data || result.error) {
     const response = new Response(JSON.stringify({ error: 'Order not found' }), {
@@ -152,11 +148,7 @@ Deno.test('send-order-shipped - returns 404 for non-existent order', async () =>
 });
 
 Deno.test('send-order-shipped - returns 400 if order is not shipped', async () => {
-  const result = await mockSupabaseClient
-    .from('sticker_orders')
-    .select('*')
-    .eq('id', 'not-shipped-order')
-    .single();
+  const result = await mockSupabaseClient.from('sticker_orders').select('*').eq('id', 'not-shipped-order').single();
 
   if (result.data && result.data.status !== 'shipped') {
     const response = new Response(JSON.stringify({ error: 'Order is not shipped' }), {
@@ -170,11 +162,7 @@ Deno.test('send-order-shipped - returns 400 if order is not shipped', async () =
 });
 
 Deno.test('send-order-shipped - returns 400 if order has no tracking number', async () => {
-  const result = await mockSupabaseClient
-    .from('sticker_orders')
-    .select('*')
-    .eq('id', 'not-shipped-order')
-    .single();
+  const result = await mockSupabaseClient.from('sticker_orders').select('*').eq('id', 'not-shipped-order').single();
 
   if (result.data && !result.data.tracking_number) {
     const response = new Response(JSON.stringify({ error: 'Order has no tracking number' }), {
@@ -188,11 +176,7 @@ Deno.test('send-order-shipped - returns 400 if order has no tracking number', as
 });
 
 Deno.test('send-order-shipped - sends email with tracking info', async () => {
-  const result = await mockSupabaseClient
-    .from('sticker_orders')
-    .select('*')
-    .eq('id', 'valid-order-id')
-    .single();
+  const result = await mockSupabaseClient.from('sticker_orders').select('*').eq('id', 'valid-order-id').single();
 
   assertExists(result.data);
   const order = result.data as {

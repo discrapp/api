@@ -18,42 +18,33 @@ let mockNotifications: MockNotification[] = [];
 
 // Mock Supabase client
 const mockSupabaseClient = {
-  from: (table: string) => ({
-    select: (columns: string) => ({
+  from: (table: string) => {
+    let filtered: MockNotification[] = [];
+    const createEqChain = () => ({
       eq: (column: string, value: string | boolean) => {
         if (table === 'notifications') {
-          const filtered = mockNotifications.filter((n) => {
-            if (typeof value === 'boolean') {
-              return n[column as keyof MockNotification] === value;
-            }
+          filtered = (filtered.length ? filtered : mockNotifications).filter((n) => {
             return n[column as keyof MockNotification] === value;
           });
-
-          return {
-            order: (col: string, opts?: { ascending?: boolean }) => ({
-              then: (callback: (result: { data: MockNotification[]; error: null }) => void) => {
-                const sorted = [...filtered].sort((a, b) => {
-                  const aVal = a[col as keyof MockNotification] as string;
-                  const bVal = b[col as keyof MockNotification] as string;
-                  return opts?.ascending === false ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal);
-                });
-                callback({ data: sorted, error: null });
-                return Promise.resolve({ data: sorted, error: null });
-              },
-            }),
-          };
         }
         return {
-          order: () => ({
-            then: (callback: (result: { data: []; error: null }) => void) => {
-              callback({ data: [], error: null });
-              return Promise.resolve({ data: [], error: null });
-            },
-          }),
+          ...createEqChain(),
+          order: (col: string, opts?: { ascending?: boolean }) => {
+            const sorted = [...filtered].sort((a, b) => {
+              const aVal = a[col as keyof MockNotification] as string;
+              const bVal = b[col as keyof MockNotification] as string;
+              return opts?.ascending === false ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal);
+            });
+            return Promise.resolve({ data: sorted, error: null });
+          },
         };
       },
-    }),
-  }),
+    });
+
+    return {
+      select: (_columns: string) => createEqChain(),
+    };
+  },
 };
 
 // Reset mocks before each test
@@ -96,13 +87,18 @@ Deno.test('get-notifications - returns empty array when user has no notification
   resetMocks();
 
   const userId = 'user-123';
-  const result = await mockSupabaseClient.from('notifications').select('*').eq('user_id', userId).eq('dismissed', false).order('created_at', { ascending: false });
+  const result = await mockSupabaseClient
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('dismissed', false)
+    .order('created_at', { ascending: false });
 
   const response = new Response(
     JSON.stringify({
       notifications: result.data,
       total_count: result.data.length,
-      unread_count: result.data.filter((n) => !n.read).length,
+      unread_count: result.data.filter((n: MockNotification) => !n.read).length,
     }),
     {
       status: 200,
@@ -136,13 +132,18 @@ Deno.test('get-notifications - returns user notifications', async () => {
     },
   ];
 
-  const result = await mockSupabaseClient.from('notifications').select('*').eq('user_id', userId).eq('dismissed', false).order('created_at', { ascending: false });
+  const result = await mockSupabaseClient
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('dismissed', false)
+    .order('created_at', { ascending: false });
 
   const response = new Response(
     JSON.stringify({
       notifications: result.data,
       total_count: result.data.length,
-      unread_count: result.data.filter((n) => !n.read).length,
+      unread_count: result.data.filter((n: MockNotification) => !n.read).length,
     }),
     {
       status: 200,
@@ -233,13 +234,18 @@ Deno.test('get-notifications - excludes dismissed notifications', async () => {
     },
   ];
 
-  const result = await mockSupabaseClient.from('notifications').select('*').eq('user_id', userId).eq('dismissed', false).order('created_at', { ascending: false });
+  const result = await mockSupabaseClient
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('dismissed', false)
+    .order('created_at', { ascending: false });
 
   const response = new Response(
     JSON.stringify({
       notifications: result.data,
       total_count: result.data.length,
-      unread_count: result.data.filter((n) => !n.read).length,
+      unread_count: result.data.filter((n: MockNotification) => !n.read).length,
     }),
     {
       status: 200,

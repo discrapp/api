@@ -33,7 +33,7 @@ type MockUser = {
 let mockAddresses: MockAddress[] = [];
 let mockOrders: MockOrder[] = [];
 let mockUser: MockUser | null = null;
-let mockStripeSessionUrl = 'https://checkout.stripe.com/session-123';
+const mockStripeSessionUrl = 'https://checkout.stripe.com/session-123';
 
 // Mock Supabase client
 const mockSupabaseClient = {
@@ -69,7 +69,7 @@ const mockSupabaseClient = {
         },
       }),
     }),
-    select: (columns: string) => ({
+    select: (_columns: string) => ({
       eq: (column: string, value: string) => ({
         eq: (column2: string, value2: string) => ({
           single: () => {
@@ -122,7 +122,7 @@ const mockSupabaseClient = {
 const mockStripe = {
   checkout: {
     sessions: {
-      create: (params: Record<string, unknown>) => {
+      create: (_params: Record<string, unknown>) => {
         return Promise.resolve({
           id: 'session-123',
           url: mockStripeSessionUrl,
@@ -170,7 +170,7 @@ Deno.test('create-sticker-order - returns 401 when not authenticated', async () 
 });
 
 Deno.test('create-sticker-order - returns 400 when quantity is missing', async () => {
-  const body = {};
+  const body: { quantity?: number } = {};
 
   if (body.quantity === undefined || body.quantity === null) {
     const response = new Response(JSON.stringify({ error: 'Missing required field: quantity' }), {
@@ -198,7 +198,9 @@ Deno.test('create-sticker-order - returns 400 when quantity is invalid', async (
 });
 
 Deno.test('create-sticker-order - returns 400 when shipping_address is missing', async () => {
-  const body = { quantity: 10 };
+  const body: { quantity: number; shipping_address_id?: string; shipping_address?: object } = {
+    quantity: 10,
+  };
 
   if (!body.shipping_address_id && !body.shipping_address) {
     const response = new Response(JSON.stringify({ error: 'Missing required field: shipping_address' }), {
@@ -283,8 +285,9 @@ Deno.test('create-sticker-order - creates order and returns checkout URL', async
     .single();
 
   assertExists(order);
-  assertEquals(order.quantity, 10);
-  assertEquals(order.status, 'pending_payment');
+  const orderData = order as MockOrder;
+  assertEquals(orderData.quantity, 10);
+  assertEquals(orderData.status, 'pending_payment');
 
   // Create Stripe checkout session
   const session = await mockStripe.checkout.sessions.create({
@@ -304,8 +307,8 @@ Deno.test('create-sticker-order - creates order and returns checkout URL', async
     ],
     mode: 'payment',
     metadata: {
-      order_id: order.id,
-      order_number: order.order_number,
+      order_id: orderData.id,
+      order_number: orderData.order_number,
     },
     customer_email: authData.user.email,
   });
@@ -314,15 +317,18 @@ Deno.test('create-sticker-order - creates order and returns checkout URL', async
   assertEquals(session.url, 'https://checkout.stripe.com/session-123');
 
   // Update order with session ID
-  await mockSupabaseClient.from('sticker_orders').update({
-    stripe_checkout_session_id: session.id,
-  }).eq('id', order.id);
+  await mockSupabaseClient
+    .from('sticker_orders')
+    .update({
+      stripe_checkout_session_id: session.id,
+    })
+    .eq('id', orderData.id);
 
   // Verify order was updated
   const { data: updatedOrder } = await mockSupabaseClient
     .from('sticker_orders')
     .select('*')
-    .eq('id', order.id)
+    .eq('id', orderData.id)
     .single();
 
   assertExists(updatedOrder);
@@ -383,7 +389,8 @@ Deno.test('create-sticker-order - uses existing shipping address if provided', a
     .single();
 
   assertExists(order);
-  assertEquals(order.shipping_address_id, existingAddress.id);
+  const orderData = order as MockOrder;
+  assertEquals(orderData.shipping_address_id, existingAddress.id);
 });
 
 Deno.test('create-sticker-order - returns 400 for shipping address not belonging to user', async () => {

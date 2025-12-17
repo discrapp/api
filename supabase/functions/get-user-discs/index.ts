@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
       const wasSurrendered = !!surrenderedRecovery;
 
       // Remove recovery_events from response and add processed fields
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
       const { recovery_events: _, ...discWithoutRecoveries } = disc;
 
       return {

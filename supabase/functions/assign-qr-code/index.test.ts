@@ -27,7 +27,7 @@ const mockSupabaseClient = {
     },
   },
   from: (table: string) => ({
-    select: (columns?: string) => ({
+    select: (_columns?: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'qr_codes') {
@@ -120,11 +120,7 @@ Deno.test("assign-qr-code - returns 400 when QR code doesn't exist", async () =>
 
   const qr_code = 'NONEXISTENT123';
 
-  const { data: qrCode } = await mockSupabaseClient
-    .from('qr_codes')
-    .select('*')
-    .eq('short_code', qr_code)
-    .single();
+  const { data: qrCode } = await mockSupabaseClient.from('qr_codes').select('*').eq('short_code', qr_code).single();
 
   if (!qrCode) {
     const response = new Response(JSON.stringify({ error: 'QR code not found' }), {
@@ -180,11 +176,7 @@ Deno.test('assign-qr-code - returns 400 when QR code is already active', async (
     assigned_to: 'other-user-456',
   });
 
-  const { data: qrCode } = await mockSupabaseClient
-    .from('qr_codes')
-    .select('*')
-    .eq('short_code', 'ACTIVE123')
-    .single();
+  const { data: qrCode } = await mockSupabaseClient.from('qr_codes').select('*').eq('short_code', 'ACTIVE123').single();
 
   assertExists(qrCode);
 

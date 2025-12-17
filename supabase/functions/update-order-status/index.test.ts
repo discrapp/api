@@ -7,6 +7,9 @@ type MockOrderData = {
   order_number: string;
   pdf_storage_path?: string | null;
   printer_token: string;
+  printed_at?: string | null;
+  tracking_number?: string | null;
+  shipped_at?: string | null;
 };
 
 let mockOrders: MockOrderData[] = [];
@@ -15,7 +18,7 @@ let mockFetchCalls: Array<{ url: string; body: unknown }> = [];
 
 const mockSupabaseClient = {
   from: (table: string) => ({
-    select: (columns: string) => ({
+    select: (_columns: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'sticker_orders') {
@@ -30,7 +33,7 @@ const mockSupabaseClient = {
     }),
     update: (data: Record<string, unknown>) => ({
       eq: (column: string, value: string) => ({
-        select: (columns: string) => ({
+        select: (_columns: string) => ({
           single: () => {
             const order = mockOrders.find((o) => o[column as keyof MockOrderData] === value);
             if (order) {
@@ -46,7 +49,7 @@ const mockSupabaseClient = {
     }),
   }),
   storage: {
-    from: (bucket: string) => ({
+    from: (_bucket: string) => ({
       remove: (paths: string[]) => {
         mockStorageDeleted.push(...paths);
         return Promise.resolve({ data: null, error: null });
@@ -311,13 +314,10 @@ Deno.test('update-order-status - requires tracking_number when setting status to
   const trackingNumber = undefined;
 
   if (status === 'shipped' && !trackingNumber) {
-    const response = new Response(
-      JSON.stringify({ error: 'tracking_number is required when marking as shipped' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'tracking_number is required when marking as shipped' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const body = await response.json();
     assertEquals(body.error, 'tracking_number is required when marking as shipped');

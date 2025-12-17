@@ -31,7 +31,7 @@ let lastEmailSent: {
 // Mock Supabase client
 const mockSupabaseClient = {
   from: (table: string) => ({
-    select: (columns: string) => ({
+    select: (_columns: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'sticker_orders') {
@@ -46,8 +46,8 @@ const mockSupabaseClient = {
     }),
   }),
   storage: {
-    from: (bucket: string) => ({
-      createSignedUrl: (path: string, expiresIn: number) => {
+    from: (_bucket: string) => ({
+      createSignedUrl: (path: string, _expiresIn: number) => {
         if (path) {
           return Promise.resolve({
             data: { signedUrl: `https://storage.supabase.co/signed/${path}?token=abc123` },
@@ -114,7 +114,7 @@ Deno.test('send-printer-notification - returns 400 for invalid JSON body', async
 });
 
 Deno.test('send-printer-notification - returns 400 when order_id is missing', async () => {
-  const body = {};
+  const body: { order_id?: string } = {};
 
   if (!body.order_id) {
     const response = new Response(JSON.stringify({ error: 'Missing required field: order_id' }), {
@@ -130,7 +130,11 @@ Deno.test('send-printer-notification - returns 400 when order_id is missing', as
 Deno.test('send-printer-notification - returns 404 when order not found', async () => {
   resetMocks();
 
-  const result = await mockSupabaseClient.from('sticker_orders').select('*').eq('id', '00000000-0000-0000-0000-000000000000').single();
+  const result = await mockSupabaseClient
+    .from('sticker_orders')
+    .select('*')
+    .eq('id', '00000000-0000-0000-0000-000000000000')
+    .single();
 
   if (!result.data || result.error) {
     const response = new Response(JSON.stringify({ error: 'Order not found' }), {
@@ -220,9 +224,6 @@ Deno.test('send-printer-notification - sends email for valid order with PDF', as
 
   assertExists(signedUrl);
   assertExists(signedUrl.signedUrl);
-
-  // Handle shipping address
-  const shippingAddress = Array.isArray(order.shipping_address) ? order.shipping_address[0] : order.shipping_address;
 
   // Send email
   const PRINTER_EMAIL = 'printer@aceback.app';

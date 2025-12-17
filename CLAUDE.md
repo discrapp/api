@@ -200,7 +200,10 @@ function mockSupabaseClient() {
           single: async () => {
             if (table === 'discs') {
               const disc = mockDiscs[0];
-              return { data: disc || null, error: disc ? null : { code: 'PGRST116' } };
+              return {
+                data: disc || null,
+                error: disc ? null : { code: 'PGRST116' },
+              };
             }
             return { data: null, error: null };
           },
@@ -247,6 +250,124 @@ Deno.test('example test', async () => {
 - Use typed mock data interfaces for type safety
 - Configure mock return values based on test scenario
 - Test both success and error paths
+
+### Mock Type Safety - CRITICAL
+
+When writing mocked tests, ensure type safety to catch errors at compile time:
+
+**1. Empty object literals need explicit types:**
+
+```typescript
+// BAD - TypeScript infers {} with no properties
+const body = {};
+if (!body.order_id) { ... }  // Error: Property 'order_id' doesn't exist
+
+// GOOD - Explicitly type the object
+const body: { order_id?: string } = {};
+if (!body.order_id) { ... }  // Works correctly
+```
+
+**2. Mock return types with union types need assertions:**
+
+```typescript
+// When mock returns MockDisc | MockRecoveryEvent:
+const result = await mockSupabaseClient.from('discs').select('*').eq('id', id).single();
+assertExists(result.data);
+
+// BAD - result.data is union type, owner_id doesn't exist on MockRecoveryEvent
+if (result.data.owner_id === userId) { ... }  // Type error!
+
+// GOOD - Assert the specific type
+const disc = result.data as MockDisc;
+if (disc.owner_id === userId) { ... }  // Works correctly
+```
+
+**3. Mock client method chains must match Supabase API:**
+
+```typescript
+// BAD - .in() takes only statuses, but Supabase API takes (column, values)
+in: (statuses: string[]) => ({ ... })
+
+// GOOD - Match Supabase signature: .in(column, values)
+in: (column: string, values: string[]) => ({ ... })
+```
+
+**4. Filter callbacks need explicit parameter types:**
+
+```typescript
+// BAD - 'n' has implicit 'any' type
+result.data.filter((n) => !n.read)
+
+// GOOD - Explicitly type the parameter
+result.data.filter((n: MockNotification) => !n.read)
+```
+
+**5. Mock type definitions must include all fields used in tests:**
+
+```typescript
+// If tests check printed_at, tracking_number, shipped_at:
+type MockOrderData = {
+  id: string;
+  status: string;
+  order_number: string;
+  printed_at?: string | null;      // Include if tests use it
+  tracking_number?: string | null; // Include if tests use it
+  shipped_at?: string | null;      // Include if tests use it
+};
+```
+
+**Always run `deno check` before committing to catch type errors early.**
+
+### ESLint Compliance - CRITICAL
+
+**CRITICAL:** All code MUST pass ESLint from the start. Do not rely on linters to
+fix issues - write clean code first.
+
+**Key rules:**
+
+**1. Prefix unused function parameters with `_`:**
+
+```typescript
+// BAD - ESLint error: 'columns' is defined but never used
+select: (columns?: string) => ({ ... })
+
+// GOOD - Underscore prefix indicates intentionally unused
+select: (_columns?: string) => ({ ... })
+```
+
+**2. Don't assign variables you won't use:**
+
+```typescript
+// BAD - ESLint error: 'totalPrice' is assigned but never used
+const totalPrice = calculatePrice();  // Not used anywhere
+
+// GOOD - Either use the variable or don't create it
+// Remove the line if the value isn't needed in the test
+```
+
+**3. Use `const` for variables that aren't reassigned:**
+
+```typescript
+// BAD - ESLint error: 'url' is never reassigned, use const
+let url = 'https://example.com';
+
+// GOOD
+const url = 'https://example.com';
+```
+
+**4. Avoid `any` types - use proper typing:**
+
+```typescript
+// BAD - ESLint error: Unexpected any
+const result = await (client as any).from('table').select();
+
+// GOOD - Properly type your mocks or use type assertions
+const result = await client.from('table').select();
+// Or add /* eslint-disable @typescript-eslint/no-explicit-any */ at file top
+// only as a last resort for complex mock scenarios
+```
+
+**Run `npx eslint <file>` before committing to catch errors early.**
 
 ### Code Quality Standards
 

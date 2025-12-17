@@ -36,7 +36,7 @@ const mockSupabaseClient = {
     },
   },
   from: (table: string) => ({
-    select: (columns?: string) => ({
+    select: (_columns?: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'discs') {
@@ -151,11 +151,7 @@ Deno.test("unlink-qr-code - returns 400 when disc doesn't exist", async () => {
 
   const disc_id = '00000000-0000-0000-0000-000000000000';
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', disc_id)
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', disc_id).single();
 
   if (!disc) {
     const response = new Response(JSON.stringify({ error: 'Disc not found' }), {
@@ -184,11 +180,9 @@ Deno.test('unlink-qr-code - returns 403 when disc not owned by current user', as
     mold: 'Destroyer',
   });
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-456')
-    .single() as { data: MockDisc | null };
+  const { data: disc } = (await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-456').single()) as {
+    data: MockDisc | null;
+  };
 
   assertExists(disc);
 
@@ -219,11 +213,9 @@ Deno.test('unlink-qr-code - returns 400 when disc has no QR code linked', async 
     mold: 'Destroyer',
   });
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-no-qr')
-    .single() as { data: MockDisc | null };
+  const { data: disc } = (await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-no-qr').single()) as {
+    data: MockDisc | null;
+  };
 
   assertExists(disc);
 
@@ -262,11 +254,9 @@ Deno.test('unlink-qr-code - successfully unlinks and deletes QR code from disc',
     mold: 'Destroyer',
   });
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-with-qr')
-    .single() as { data: MockDisc | null };
+  const { data: disc } = (await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-with-qr').single()) as {
+    data: MockDisc | null;
+  };
 
   assertExists(disc);
   assertEquals(disc.qr_code_id, 'qr-delete-me');
@@ -288,11 +278,7 @@ Deno.test('unlink-qr-code - successfully unlinks and deletes QR code from disc',
   await mockSupabaseClient.from('qr_codes').delete().eq('id', qrCodeId);
 
   // Verify QR code was deleted
-  const { data: deletedQr } = await mockSupabaseClient
-    .from('qr_codes')
-    .select('*')
-    .eq('id', qrCodeId)
-    .maybeSingle();
+  const { data: deletedQr } = await mockSupabaseClient.from('qr_codes').select('*').eq('id', qrCodeId).maybeSingle();
 
   assertEquals(deletedQr, null);
 

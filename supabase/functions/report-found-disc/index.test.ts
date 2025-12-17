@@ -33,7 +33,7 @@ let mockRecoveryEvents: MockRecoveryEvent[] = [];
 // Mock Supabase client
 const mockSupabaseClient = {
   from: (table: string) => ({
-    select: (columns?: string) => ({
+    select: (_columns?: string) => ({
       ilike: (column: string, value: string) => ({
         single: () => {
           if (table === 'qr_codes') {
@@ -48,37 +48,43 @@ const mockSupabaseClient = {
           return Promise.resolve({ data: null, error: { message: 'Not found' } });
         },
       }),
-      eq: (column: string, value: string) => ({
-        single: () => {
-          if (table === 'discs') {
-            const disc = mockDiscs.find((d) => d[column as keyof MockDisc] === value);
-            if (disc) {
-              return Promise.resolve({ data: disc, error: null });
+      eq: (column: string, value: string) => {
+        // Store the filter context for chaining
+        const eqColumn = column;
+        const eqValue = value;
+        return {
+          single: () => {
+            if (table === 'discs') {
+              const disc = mockDiscs.find((d) => d[eqColumn as keyof MockDisc] === eqValue);
+              if (disc) {
+                return Promise.resolve({ data: disc, error: null });
+              }
             }
-          }
-          if (table === 'recovery_events') {
-            const recovery = mockRecoveryEvents.find((r) => r[column as keyof MockRecoveryEvent] === value);
-            if (recovery) {
-              return Promise.resolve({ data: recovery, error: null });
-            }
-          }
-          return Promise.resolve({ data: null, error: { message: 'Not found' } });
-        },
-        in: (statuses: string[]) => ({
-          maybeSingle: () => {
             if (table === 'recovery_events') {
-              const recovery = mockRecoveryEvents.find((r) => {
-                const discMatch = r[column as keyof MockRecoveryEvent] === value;
-                return discMatch && statuses.includes(r.status);
-              });
+              const recovery = mockRecoveryEvents.find((r) => r[eqColumn as keyof MockRecoveryEvent] === eqValue);
               if (recovery) {
                 return Promise.resolve({ data: recovery, error: null });
               }
             }
-            return Promise.resolve({ data: null, error: null });
+            return Promise.resolve({ data: null, error: { message: 'Not found' } });
           },
-        }),
-      }),
+          in: (inColumn: string, statuses: string[]) => ({
+            maybeSingle: () => {
+              if (table === 'recovery_events') {
+                const recovery = mockRecoveryEvents.find((r) => {
+                  const discMatch = r[eqColumn as keyof MockRecoveryEvent] === eqValue;
+                  const statusMatch = statuses.includes(r[inColumn as keyof MockRecoveryEvent] as string);
+                  return discMatch && statusMatch;
+                });
+                if (recovery) {
+                  return Promise.resolve({ data: recovery, error: null });
+                }
+              }
+              return Promise.resolve({ data: null, error: null });
+            },
+          }),
+        };
+      },
     }),
     insert: (data: MockRecoveryEvent) => ({
       select: () => ({
@@ -197,8 +203,9 @@ Deno.test('report-found-disc - returns 400 when finder reports their own disc', 
 
   const discResult = await mockSupabaseClient.from('discs').select('*').eq('qr_code_id', qrResult.data.id).single();
   assertExists(discResult.data);
+  const disc = discResult.data as MockDisc;
 
-  if (discResult.data.owner_id === userId) {
+  if (disc.owner_id === userId) {
     const response = new Response(JSON.stringify({ error: 'You cannot report your own disc as found' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
@@ -220,7 +227,11 @@ Deno.test('report-found-disc - returns 400 when disc has active recovery', async
     { id: 'recovery-1', disc_id: 'disc-1', finder_id: finderId, status: 'found', found_at: new Date().toISOString() },
   ];
 
-  const qrResult = await mockSupabaseClient.from('qr_codes').select('*').ilike('short_code', '%ACTIVERECOV123%').single();
+  const qrResult = await mockSupabaseClient
+    .from('qr_codes')
+    .select('*')
+    .ilike('short_code', '%ACTIVERECOV123%')
+    .single();
   assertExists(qrResult.data);
 
   const discResult = await mockSupabaseClient.from('discs').select('*').eq('qr_code_id', qrResult.data.id).single();
@@ -298,7 +309,7 @@ Deno.test('report-found-disc - should be case insensitive for QR code lookup', a
   resetMocks();
 
   const ownerId = 'owner-123';
-  const finderId = 'finder-456';
+  // finderId would be used in full implementation - this test only checks QR lookup
   mockQRCodes = [{ id: 'qr-1', short_code: 'CASETEST123', status: 'assigned', assigned_to: ownerId }];
   mockDiscs = [{ id: 'disc-1', owner_id: ownerId, qr_code_id: 'qr-1', name: 'Case Test Disc', mold: 'Mako3' }];
 

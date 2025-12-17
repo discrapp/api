@@ -32,7 +32,7 @@ let lastEmailSent: {
 // Mock Supabase client
 const mockSupabaseClient = {
   from: (table: string) => ({
-    select: (columns: string) => ({
+    select: (_columns: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'sticker_orders') {
@@ -117,7 +117,7 @@ Deno.test('send-order-confirmation - returns 400 for invalid JSON body', async (
 });
 
 Deno.test('send-order-confirmation - returns 400 when order_id is missing', async () => {
-  const body = {};
+  const body: { order_id?: string } = {};
 
   if (!body.order_id) {
     const response = new Response(JSON.stringify({ error: 'Missing required field: order_id' }), {
@@ -133,7 +133,11 @@ Deno.test('send-order-confirmation - returns 400 when order_id is missing', asyn
 Deno.test('send-order-confirmation - returns 404 when order not found', async () => {
   resetMocks();
 
-  const result = await mockSupabaseClient.from('sticker_orders').select('*').eq('id', '00000000-0000-0000-0000-000000000000').single();
+  const result = await mockSupabaseClient
+    .from('sticker_orders')
+    .select('*')
+    .eq('id', '00000000-0000-0000-0000-000000000000')
+    .single();
 
   if (!result.data || result.error) {
     const response = new Response(JSON.stringify({ error: 'Order not found' }), {
@@ -225,12 +229,6 @@ Deno.test('send-order-confirmation - sends email for valid order', async () => {
   const userResult = await mockSupabaseClient.auth.admin.getUserById(order.user_id);
   assertExists(userResult.data.user?.email);
   const userEmail = userResult.data.user.email;
-
-  // Handle shipping address
-  const shippingAddress = Array.isArray(order.shipping_address) ? order.shipping_address[0] : order.shipping_address;
-
-  // Format price
-  const totalPrice = (order.total_price_cents / 100).toFixed(2);
 
   // Send email
   const emailResult = await mockSendEmail({

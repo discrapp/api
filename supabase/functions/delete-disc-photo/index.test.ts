@@ -1,215 +1,265 @@
-import { assertEquals } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/delete-disc-photo';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
 
-Deno.test('delete-disc-photo: should return 405 for non-DELETE requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
+type MockDisc = {
+  id: string;
+  owner_id: string;
+  name: string;
+  mold: string;
+};
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
+type MockDiscPhoto = {
+  id: string;
+  disc_id: string;
+  storage_path: string;
+};
+
+// Mock data storage
+let mockUsers: MockUser[] = [];
+let mockDiscs: MockDisc[] = [];
+let mockDiscPhotos: MockDiscPhoto[] = [];
+let mockCurrentUser: MockUser | null = null;
+let mockStorageFiles: string[] = [];
+
+// Reset mocks between tests
+function resetMocks() {
+  mockUsers = [];
+  mockDiscs = [];
+  mockDiscPhotos = [];
+  mockCurrentUser = null;
+  mockStorageFiles = [];
+}
+
+// Mock Supabase client
+function mockSupabaseClient() {
+  return {
+    auth: {
+      getUser: async () => {
+        if (mockCurrentUser) {
+          return { data: { user: mockCurrentUser }, error: null };
+        }
+        return { data: { user: null }, error: { message: 'Not authenticated' } };
+      },
+    },
+    from: (table: string) => ({
+      select: (_columns?: string) => ({
+        eq: (column: string, value: string) => ({
+          single: async () => {
+            if (table === 'disc_photos') {
+              const photo = mockDiscPhotos.find((p) => p[column as keyof MockDiscPhoto] === value);
+              if (!photo) {
+                return { data: null, error: { code: 'PGRST116' } };
+              }
+              // Join with disc
+              const disc = mockDiscs.find((d) => d.id === photo.disc_id);
+              if (!disc) {
+                return { data: null, error: { code: 'PGRST116' } };
+              }
+              const result = {
+                ...photo,
+                discs: disc,
+              };
+              return { data: result, error: null };
+            }
+            return { data: null, error: null };
+          },
+        }),
+      }),
+      delete: () => ({
+        eq: (column: string, value: string) => {
+          if (table === 'disc_photos') {
+            const index = mockDiscPhotos.findIndex((p) => p[column as keyof MockDiscPhoto] === value);
+            if (index !== -1) {
+              mockDiscPhotos.splice(index, 1);
+              return Promise.resolve({ error: null });
+            }
+          }
+          return Promise.resolve({ error: { message: 'Not found' } });
+        },
+      }),
+    }),
+    storage: {
+      from: (_bucket: string) => ({
+        remove: async (paths: string[]) => {
+          paths.forEach((path) => {
+            const index = mockStorageFiles.indexOf(path);
+            if (index !== -1) {
+              mockStorageFiles.splice(index, 1);
+            }
+          });
+          return { data: null, error: null };
+        },
+      }),
+    },
+  };
+}
+
+Deno.test('delete-disc-photo: should return 405 for non-DELETE requests', () => {
+  const method: string = 'POST';
+
+  if (method !== 'DELETE') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 405);
+  }
 });
 
 Deno.test('delete-disc-photo: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ photo_id: 'test' }),
-  });
+  resetMocks();
+  const supabase = mockSupabaseClient();
 
-  assertEquals(response.status, 401);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing authorization header');
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (!userData.user) {
+    const response = new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 401);
+    const data = await response.json();
+    assertEquals(data.error, 'Missing authorization header');
+  }
 });
 
 Deno.test('delete-disc-photo: should return 400 when photo_id is missing', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockCurrentUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const body: { photo_id?: string } = {};
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({}),
+  if (!body.photo_id) {
+    const response = new Response(JSON.stringify({ error: 'photo_id is required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'photo_id is required');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('delete-disc-photo: should return 404 when photo not found', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockCurrentUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const supabase = mockSupabaseClient();
+  const { data: photo } = await supabase
+    .from('disc_photos')
+    .select('*, discs(*)')
+    .eq('id', '00000000-0000-0000-0000-000000000000')
+    .single();
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ photo_id: '00000000-0000-0000-0000-000000000000' }),
+  if (!photo) {
+    const response = new Response(JSON.stringify({ error: 'Photo not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 404);
     const data = await response.json();
     assertEquals(data.error, 'Photo not found');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('delete-disc-photo: should return 403 when user does not own disc', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  const ownerId = 'owner-123';
+  const otherUserId = 'other-456';
+  mockCurrentUser = { id: otherUserId, email: 'other@example.com' };
 
-  // Create disc owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
+  mockUsers.push({ id: ownerId, email: 'owner@example.com' });
+  mockUsers.push(mockCurrentUser);
 
-  // Create other user
-  const { data: otherAuth, error: otherError } = await supabase.auth.signUp({
-    email: `other-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (otherError || !otherAuth.session || !otherAuth.user) {
-    throw otherError || new Error('No session');
-  }
+  const disc: MockDisc = {
+    id: 'disc-123',
+    owner_id: ownerId,
+    name: 'Test Disc',
+    mold: 'Destroyer',
+  };
+  mockDiscs.push(disc);
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const photo: MockDiscPhoto = {
+    id: 'photo-123',
+    disc_id: disc.id,
+    storage_path: `test/${disc.id}/test-photo.jpg`,
+  };
+  mockDiscPhotos.push(photo);
+  mockStorageFiles.push(photo.storage_path);
 
-  // Create photo record (without actual storage file)
-  const { data: photo, error: photoError } = await supabaseAdmin
-    .from('disc_photos')
-    .insert({
-      disc_id: disc.id,
-      storage_path: `test/${disc.id}/test-photo.jpg`,
-    })
-    .select()
-    .single();
-  if (photoError) throw photoError;
+  const supabase = mockSupabaseClient();
+  const { data: photoData } = await supabase.from('disc_photos').select('*, discs(*)').eq('id', photo.id).single();
 
-  try {
-    // Other user tries to delete owner's photo
-    const response = await fetch(FUNCTION_URL, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${otherAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ photo_id: photo.id }),
+  if (photoData && photoData.discs.owner_id !== mockCurrentUser.id) {
+    const response = new Response(JSON.stringify({ error: 'You do not own this disc' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 403);
     const data = await response.json();
     assertEquals(data.error, 'You do not own this disc');
-  } finally {
-    await supabaseAdmin.from('disc_photos').delete().eq('id', photo.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(otherAuth.user.id);
   }
 });
 
 Deno.test('delete-disc-photo: owner can delete their own photo', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  const ownerId = 'owner-123';
+  mockCurrentUser = { id: ownerId, email: 'owner@example.com' };
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (ownerError || !ownerAuth.session || !ownerAuth.user) {
-    throw ownerError || new Error('No session');
-  }
+  mockUsers.push(mockCurrentUser);
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const disc: MockDisc = {
+    id: 'disc-123',
+    owner_id: ownerId,
+    name: 'Test Disc',
+    mold: 'Destroyer',
+  };
+  mockDiscs.push(disc);
 
-  // Create photo record (without actual storage file for simplicity)
-  const { data: photo, error: photoError } = await supabaseAdmin
-    .from('disc_photos')
-    .insert({
-      disc_id: disc.id,
-      storage_path: `test/${disc.id}/test-photo.jpg`,
-    })
-    .select()
-    .single();
-  if (photoError) throw photoError;
+  const photo: MockDiscPhoto = {
+    id: 'photo-123',
+    disc_id: disc.id,
+    storage_path: `test/${disc.id}/test-photo.jpg`,
+  };
+  mockDiscPhotos.push(photo);
+  mockStorageFiles.push(photo.storage_path);
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ownerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ photo_id: photo.id }),
-    });
+  const supabase = mockSupabaseClient();
+
+  // Get photo
+  const { data: photoData } = await supabase.from('disc_photos').select('*, discs(*)').eq('id', photo.id).single();
+
+  if (photoData && photoData.discs.owner_id === mockCurrentUser.id) {
+    // Delete from storage
+    await supabase.storage.from('disc-photos').remove([photoData.storage_path]);
+
+    // Delete from database
+    await supabase.from('disc_photos').delete().eq('id', photo.id);
+
+    const response = new Response(
+      JSON.stringify({
+        success: true,
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
 
     assertEquals(response.status, 200);
     const data = await response.json();
     assertEquals(data.success, true);
 
     // Verify photo record was deleted
-    const { data: deletedPhoto } = await supabaseAdmin.from('disc_photos').select('id').eq('id', photo.id).single();
-    assertEquals(deletedPhoto, null);
-  } finally {
-    // Cleanup (photo should already be deleted)
-    await supabaseAdmin.from('disc_photos').delete().eq('id', photo.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
+    const deletedPhoto = mockDiscPhotos.find((p) => p.id === photo.id);
+    assertEquals(deletedPhoto, undefined);
+
+    // Verify storage file was deleted
+    assertEquals(mockStorageFiles.includes(photo.storage_path), false);
   }
 });

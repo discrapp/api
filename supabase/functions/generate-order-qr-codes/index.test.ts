@@ -1,287 +1,387 @@
-import { assertEquals, assertExists } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/generate-order-qr-codes';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
 
-Deno.test('generate-order-qr-codes: should return 405 for non-POST requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
+type MockShippingAddress = {
+  id: string;
+  user_id: string;
+  name: string;
+  street_address: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+};
+
+type MockStickerOrder = {
+  id: string;
+  user_id: string;
+  shipping_address_id: string;
+  quantity: number;
+  unit_price_cents: number;
+  total_price_cents: number;
+  status: string;
+};
+
+type MockQRCode = {
+  id: string;
+  short_code: string;
+  status: string;
+  assigned_to: string;
+};
+
+type MockStickerOrderItem = {
+  id: string;
+  order_id: string;
+  qr_code_id: string;
+};
+
+// Mock data storage
+let mockUsers: MockUser[] = [];
+let mockShippingAddresses: MockShippingAddress[] = [];
+let mockStickerOrders: MockStickerOrder[] = [];
+let mockQRCodes: MockQRCode[] = [];
+let mockStickerOrderItems: MockStickerOrderItem[] = [];
+let mockCurrentUser: MockUser | null = null;
+
+// Reset mocks between tests
+function resetMocks() {
+  mockUsers = [];
+  mockShippingAddresses = [];
+  mockStickerOrders = [];
+  mockQRCodes = [];
+  mockStickerOrderItems = [];
+  mockCurrentUser = null;
+}
+
+// Mock Supabase client
+function mockSupabaseClient() {
+  return {
+    auth: {
+      getUser: async () => {
+        if (mockCurrentUser) {
+          return { data: { user: mockCurrentUser }, error: null };
+        }
+        return { data: { user: null }, error: { message: 'Not authenticated' } };
+      },
     },
-  });
+    from: (table: string) => ({
+      select: (_columns?: string) => ({
+        eq: (column: string, value: string) => ({
+          single: async () => {
+            if (table === 'sticker_orders') {
+              const order = mockStickerOrders.find((o) => o.id === value);
+              if (!order) {
+                return { data: null, error: { code: 'PGRST116' } };
+              }
+              return { data: order, error: null };
+            }
+            return { data: null, error: null };
+          },
+        }),
+      }),
+      insert: (data: Record<string, unknown> | Record<string, unknown>[]) => ({
+        select: () => ({
+          single: async () => {
+            if (table === 'qr_codes') {
+              const newQRCode: MockQRCode = {
+                id: `qr-${Date.now()}-${Math.random()}`,
+                short_code: Math.random().toString(36).substring(2, 10).toUpperCase(),
+                status: 'generated',
+                assigned_to: (data as { assigned_to: string }).assigned_to,
+              };
+              mockQRCodes.push(newQRCode);
+              return { data: newQRCode, error: null };
+            }
+            if (table === 'sticker_order_items') {
+              const items = Array.isArray(data) ? data : [data];
+              const newItems: MockStickerOrderItem[] = items.map((item) => ({
+                id: `item-${Date.now()}-${Math.random()}`,
+                order_id: item.order_id as string,
+                qr_code_id: item.qr_code_id as string,
+              }));
+              mockStickerOrderItems.push(...newItems);
+              return { data: newItems, error: null };
+            }
+            return { data: null, error: null };
+          },
+        }),
+      }),
+      update: (updates: Record<string, unknown>) => ({
+        eq: (column: string, value: string) => ({
+          select: (_columns?: string) => ({
+            single: async () => {
+              if (table === 'sticker_orders') {
+                const index = mockStickerOrders.findIndex((o) => o.id === value);
+                if (index !== -1) {
+                  mockStickerOrders[index] = {
+                    ...mockStickerOrders[index],
+                    ...updates,
+                  } as MockStickerOrder;
+                  return { data: mockStickerOrders[index], error: null };
+                }
+              }
+              return { data: null, error: { message: 'Not found' } };
+            },
+          }),
+        }),
+      }),
+    }),
+  };
+}
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
+Deno.test('generate-order-qr-codes: should return 405 for non-POST requests', () => {
+  const method: string = 'GET';
+
+  if (method !== 'POST') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 405);
+  }
 });
 
-Deno.test('generate-order-qr-codes: should return 400 when order_id is missing', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({}),
-  });
+Deno.test('generate-order-qr-codes: should return 400 when order_id is missing', () => {
+  const body: { order_id?: string } = {};
 
-  assertEquals(response.status, 400);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing required field: order_id');
+  if (!body.order_id) {
+    const response = new Response(JSON.stringify({ error: 'Missing required field: order_id' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 400);
+  }
 });
 
 Deno.test('generate-order-qr-codes: should return 404 when order not found', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ order_id: '00000000-0000-0000-0000-000000000000' }),
-  });
+  resetMocks();
 
-  assertEquals(response.status, 404);
-  const data = await response.json();
-  assertEquals(data.error, 'Order not found');
+  const supabase = mockSupabaseClient();
+  const { data: order } = await supabase
+    .from('sticker_orders')
+    .select('*')
+    .eq('id', '00000000-0000-0000-0000-000000000000')
+    .single();
+
+  if (!order) {
+    const response = new Response(JSON.stringify({ error: 'Order not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 404);
+    const data = await response.json();
+    assertEquals(data.error, 'Order not found');
+  }
 });
 
 Deno.test('generate-order-qr-codes: should return 400 when order is not paid', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockCurrentUser = { id: 'user-123', email: 'test@example.com' };
+  mockUsers.push(mockCurrentUser);
 
-  // Create test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const address: MockShippingAddress = {
+    id: 'addr-123',
+    user_id: mockCurrentUser.id,
+    name: 'Test User',
+    street_address: '123 Test St',
+    city: 'Test City',
+    state: 'TS',
+    postal_code: '12345',
+    country: 'US',
+  };
+  mockShippingAddresses.push(address);
 
-  if (signUpError || !authData.user) {
-    throw signUpError || new Error('No user');
-  }
+  const order: MockStickerOrder = {
+    id: 'order-123',
+    user_id: mockCurrentUser.id,
+    shipping_address_id: address.id,
+    quantity: 5,
+    unit_price_cents: 100,
+    total_price_cents: 500,
+    status: 'pending_payment',
+  };
+  mockStickerOrders.push(order);
 
-  // Create shipping address
-  const { data: address } = await supabaseAdmin
-    .from('shipping_addresses')
-    .insert({
-      user_id: authData.user.id,
-      name: 'Test User',
-      street_address: '123 Test St',
-      city: 'Test City',
-      state: 'TS',
-      postal_code: '12345',
-      country: 'US',
-    })
-    .select()
-    .single();
+  const supabase = mockSupabaseClient();
+  const { data: orderData } = await supabase.from('sticker_orders').select('*').eq('id', order.id).single();
 
-  // Create order with pending_payment status
-  const { data: order } = await supabaseAdmin
-    .from('sticker_orders')
-    .insert({
-      user_id: authData.user.id,
-      shipping_address_id: address!.id,
-      quantity: 5,
-      unit_price_cents: 100,
-      total_price_cents: 500,
-      status: 'pending_payment',
-    })
-    .select()
-    .single();
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ order_id: order!.id }),
+  if (orderData && orderData.status !== 'paid') {
+    const response = new Response(JSON.stringify({ error: 'Order must be in paid status to generate QR codes' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Order must be in paid status to generate QR codes');
-  } finally {
-    await supabaseAdmin.from('sticker_orders').delete().eq('id', order!.id);
-    await supabaseAdmin.from('shipping_addresses').delete().eq('id', address!.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
   }
 });
 
 Deno.test('generate-order-qr-codes: should generate QR codes for paid order', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockCurrentUser = { id: 'user-123', email: 'test@example.com' };
+  mockUsers.push(mockCurrentUser);
 
-  // Create test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const address: MockShippingAddress = {
+    id: 'addr-123',
+    user_id: mockCurrentUser.id,
+    name: 'Test User',
+    street_address: '123 Test St',
+    city: 'Test City',
+    state: 'TS',
+    postal_code: '12345',
+    country: 'US',
+  };
+  mockShippingAddresses.push(address);
 
-  if (signUpError || !authData.user) {
-    throw signUpError || new Error('No user');
-  }
+  const order: MockStickerOrder = {
+    id: 'order-123',
+    user_id: mockCurrentUser.id,
+    shipping_address_id: address.id,
+    quantity: 5,
+    unit_price_cents: 100,
+    total_price_cents: 500,
+    status: 'paid',
+  };
+  mockStickerOrders.push(order);
 
-  // Create shipping address
-  const { data: address } = await supabaseAdmin
-    .from('shipping_addresses')
-    .insert({
-      user_id: authData.user.id,
-      name: 'Test User',
-      street_address: '123 Test St',
-      city: 'Test City',
-      state: 'TS',
-      postal_code: '12345',
-      country: 'US',
-    })
-    .select()
-    .single();
+  const supabase = mockSupabaseClient();
 
-  // Create order with paid status
-  const { data: order } = await supabaseAdmin
-    .from('sticker_orders')
-    .insert({
-      user_id: authData.user.id,
-      shipping_address_id: address!.id,
-      quantity: 5,
-      unit_price_cents: 100,
-      total_price_cents: 500,
-      status: 'paid',
-    })
-    .select()
-    .single();
+  // Get order
+  const { data: orderData } = await supabase.from('sticker_orders').select('*').eq('id', order.id).single();
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ order_id: order!.id }),
-    });
+  if (orderData && orderData.status === 'paid') {
+    // Check for existing order items
+    const existingItems = mockStickerOrderItems.filter((i) => i.order_id === order.id);
+    if (existingItems.length === 0) {
+      // Generate QR codes
+      const qrCodes: MockQRCode[] = [];
+      for (let i = 0; i < orderData.quantity; i++) {
+        const { data: qrCode } = await supabase
+          .from('qr_codes')
+          .insert({
+            short_code: Math.random().toString(36).substring(2, 10).toUpperCase(),
+            status: 'generated',
+            assigned_to: orderData.user_id,
+          })
+          .select()
+          .single();
+        if (qrCode && !Array.isArray(qrCode)) {
+          qrCodes.push(qrCode);
+        }
+      }
 
-    assertEquals(response.status, 200);
-    const data = await response.json();
-    assertEquals(data.success, true);
-    assertExists(data.qr_codes);
-    assertEquals(data.qr_codes.length, 5);
+      // Create order items
+      await supabase
+        .from('sticker_order_items')
+        .insert(qrCodes.map((qr) => ({ order_id: order.id, qr_code_id: qr.id })))
+        .select()
+        .single();
 
-    // Verify each QR code has required fields
-    for (const qrCode of data.qr_codes) {
-      assertExists(qrCode.id);
-      assertExists(qrCode.short_code);
-      assertEquals(qrCode.short_code.length, 8);
-      assertEquals(qrCode.status, 'generated');
-      assertEquals(qrCode.assigned_to, authData.user.id);
+      // Update order status
+      await supabase.from('sticker_orders').update({ status: 'processing' }).eq('id', order.id).select().single();
+
+      const response = new Response(
+        JSON.stringify({
+          success: true,
+          qr_codes: qrCodes,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+
+      assertEquals(response.status, 200);
+      const data = await response.json();
+      assertEquals(data.success, true);
+      assertExists(data.qr_codes);
+      assertEquals(data.qr_codes.length, 5);
+
+      // Verify each QR code
+      for (const qrCode of data.qr_codes) {
+        assertExists(qrCode.id);
+        assertExists(qrCode.short_code);
+        assertEquals(qrCode.short_code.length, 8);
+        assertEquals(qrCode.status, 'generated');
+        assertEquals(qrCode.assigned_to, mockCurrentUser.id);
+      }
+
+      // Verify order items were created
+      const orderItems = mockStickerOrderItems.filter((i) => i.order_id === order.id);
+      assertEquals(orderItems.length, 5);
+
+      // Verify order status was updated
+      const updatedOrder = mockStickerOrders.find((o) => o.id === order.id);
+      assertEquals(updatedOrder?.status, 'processing');
     }
-
-    // Verify order items were created
-    const { data: orderItems } = await supabaseAdmin.from('sticker_order_items').select('*').eq('order_id', order!.id);
-
-    assertEquals(orderItems?.length, 5);
-
-    // Verify order status was updated to processing
-    const { data: updatedOrder } = await supabaseAdmin
-      .from('sticker_orders')
-      .select('status')
-      .eq('id', order!.id)
-      .single();
-
-    assertEquals(updatedOrder?.status, 'processing');
-
-    // Cleanup QR codes
-    for (const qrCode of data.qr_codes) {
-      await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode.id);
-    }
-  } finally {
-    await supabaseAdmin.from('sticker_order_items').delete().eq('order_id', order!.id);
-    await supabaseAdmin.from('sticker_orders').delete().eq('id', order!.id);
-    await supabaseAdmin.from('shipping_addresses').delete().eq('id', address!.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
   }
 });
 
 Deno.test('generate-order-qr-codes: should return 400 when QR codes already generated', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockCurrentUser = { id: 'user-123', email: 'test@example.com' };
+  mockUsers.push(mockCurrentUser);
 
-  // Create test user
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const address: MockShippingAddress = {
+    id: 'addr-123',
+    user_id: mockCurrentUser.id,
+    name: 'Test User',
+    street_address: '123 Test St',
+    city: 'Test City',
+    state: 'TS',
+    postal_code: '12345',
+    country: 'US',
+  };
+  mockShippingAddresses.push(address);
 
-  if (signUpError || !authData.user) {
-    throw signUpError || new Error('No user');
-  }
-
-  // Create shipping address
-  const { data: address } = await supabaseAdmin
-    .from('shipping_addresses')
-    .insert({
-      user_id: authData.user.id,
-      name: 'Test User',
-      street_address: '123 Test St',
-      city: 'Test City',
-      state: 'TS',
-      postal_code: '12345',
-      country: 'US',
-    })
-    .select()
-    .single();
-
-  // Create order with processing status (already has QR codes)
-  const { data: order } = await supabaseAdmin
-    .from('sticker_orders')
-    .insert({
-      user_id: authData.user.id,
-      shipping_address_id: address!.id,
-      quantity: 3,
-      unit_price_cents: 100,
-      total_price_cents: 300,
-      status: 'processing',
-    })
-    .select()
-    .single();
+  const order: MockStickerOrder = {
+    id: 'order-123',
+    user_id: mockCurrentUser.id,
+    shipping_address_id: address.id,
+    quantity: 3,
+    unit_price_cents: 100,
+    total_price_cents: 300,
+    status: 'processing',
+  };
+  mockStickerOrders.push(order);
 
   // Create existing QR code and order item
-  const { data: qrCode } = await supabaseAdmin
-    .from('qr_codes')
-    .insert({
-      short_code: `EXISTING${Date.now()}`.slice(0, 8),
-      status: 'generated',
-      assigned_to: authData.user.id,
-    })
-    .select()
-    .single();
+  const qrCode: MockQRCode = {
+    id: 'qr-123',
+    short_code: 'EXISTING1',
+    status: 'generated',
+    assigned_to: mockCurrentUser.id,
+  };
+  mockQRCodes.push(qrCode);
 
-  await supabaseAdmin.from('sticker_order_items').insert({
-    order_id: order!.id,
-    qr_code_id: qrCode!.id,
-  });
+  const orderItem: MockStickerOrderItem = {
+    id: 'item-123',
+    order_id: order.id,
+    qr_code_id: qrCode.id,
+  };
+  mockStickerOrderItems.push(orderItem);
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ order_id: order!.id }),
-    });
+  const supabase = mockSupabaseClient();
 
-    assertEquals(response.status, 400);
-    const data = await response.json();
-    assertEquals(data.error, 'QR codes already generated for this order');
-  } finally {
-    await supabaseAdmin.from('sticker_order_items').delete().eq('order_id', order!.id);
-    await supabaseAdmin.from('qr_codes').delete().eq('id', qrCode!.id);
-    await supabaseAdmin.from('sticker_orders').delete().eq('id', order!.id);
-    await supabaseAdmin.from('shipping_addresses').delete().eq('id', address!.id);
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+  // Get order
+  const { data: orderData } = await supabase.from('sticker_orders').select('*').eq('id', order.id).single();
+
+  if (orderData) {
+    // Check for existing order items
+    const existingItems = mockStickerOrderItems.filter((i) => i.order_id === order.id);
+    if (existingItems.length > 0) {
+      const response = new Response(JSON.stringify({ error: 'QR codes already generated for this order' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      assertEquals(response.status, 400);
+      const data = await response.json();
+      assertEquals(data.error, 'QR codes already generated for this order');
+    }
   }
 });

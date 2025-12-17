@@ -36,7 +36,7 @@ const mockSupabaseClient = {
     },
   },
   from: (table: string) => ({
-    select: (columns?: string) => ({
+    select: (_columns?: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'discs') {
@@ -205,11 +205,11 @@ Deno.test('link-qr-to-disc - returns 403 when QR code not assigned to current us
     mold: 'Destroyer',
   });
 
-  const { data: qrCode } = await mockSupabaseClient
+  const { data: qrCode } = (await mockSupabaseClient
     .from('qr_codes')
     .select('*')
     .eq('short_code', 'OTHERUSER123')
-    .single() as { data: MockQRCode | null };
+    .single()) as { data: MockQRCode | null };
 
   assertExists(qrCode);
 
@@ -246,11 +246,11 @@ Deno.test("link-qr-to-disc - returns 400 when QR code is not in 'assigned' statu
     mold: 'Destroyer',
   });
 
-  const { data: qrCode } = await mockSupabaseClient
+  const { data: qrCode } = (await mockSupabaseClient
     .from('qr_codes')
     .select('*')
     .eq('short_code', 'GENERATED123')
-    .single() as { data: MockQRCode | null };
+    .single()) as { data: MockQRCode | null };
 
   assertExists(qrCode);
 
@@ -282,11 +282,7 @@ Deno.test("link-qr-to-disc - returns 400 when disc doesn't exist", async () => {
 
   const disc_id = '00000000-0000-0000-0000-000000000000';
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', disc_id)
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', disc_id).single();
 
   if (!disc) {
     const response = new Response(JSON.stringify({ error: 'Disc not found' }), {
@@ -322,11 +318,9 @@ Deno.test('link-qr-to-disc - returns 403 when disc not owned by current user', a
     mold: 'Destroyer',
   });
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-notmine')
-    .single() as { data: MockDisc | null };
+  const { data: disc } = (await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-notmine').single()) as {
+    data: MockDisc | null;
+  };
 
   assertExists(disc);
 
@@ -373,11 +367,9 @@ Deno.test('link-qr-to-disc - returns 400 when disc already has a QR code', async
     mold: 'Destroyer',
   });
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-has-qr')
-    .single() as { data: MockDisc | null };
+  const { data: disc } = (await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-has-qr').single()) as {
+    data: MockDisc | null;
+  };
 
   assertExists(disc);
 
@@ -416,40 +408,32 @@ Deno.test('link-qr-to-disc - successfully links QR code to disc', async () => {
     mold: 'Destroyer',
   });
 
-  const { data: qrCode } = await mockSupabaseClient
-    .from('qr_codes')
-    .select('*')
-    .eq('short_code', 'LINKME123')
-    .single();
+  const { data: qrCode } = await mockSupabaseClient.from('qr_codes').select('*').eq('short_code', 'LINKME123').single();
 
   assertExists(qrCode);
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-linkme')
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-linkme').single();
 
   assertExists(disc);
 
   // Update disc with QR code
-  const { data: updatedDisc } = await mockSupabaseClient
+  const { data: updatedDisc } = (await mockSupabaseClient
     .from('discs')
     .update({ qr_code_id: qrCode.id })
     .eq('id', 'disc-linkme')
     .select()
-    .single() as { data: MockDisc | null };
+    .single()) as { data: MockDisc | null };
 
   assertExists(updatedDisc);
   assertEquals(updatedDisc.qr_code_id, 'qr-linkme');
 
   // Update QR code status to active
-  const { data: updatedQr } = await mockSupabaseClient
+  const { data: updatedQr } = (await mockSupabaseClient
     .from('qr_codes')
     .update({ status: 'active' })
     .eq('id', qrCode.id)
     .select()
-    .single() as { data: MockQRCode | null };
+    .single()) as { data: MockQRCode | null };
 
   assertExists(updatedQr);
   assertEquals(updatedQr.status, 'active');
@@ -501,30 +485,26 @@ Deno.test('link-qr-to-disc - should be case insensitive for QR code lookup', asy
   });
 
   // Look up QR code with lowercase
-  const { data: qrCode } = await mockSupabaseClient
+  const { data: qrCode } = (await mockSupabaseClient
     .from('qr_codes')
     .select('*')
     .eq('short_code', 'caselink123')
-    .single() as { data: MockQRCode | null };
+    .single()) as { data: MockQRCode | null };
 
   assertExists(qrCode);
   assertEquals(qrCode.short_code, 'CASELINK123');
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-case')
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-case').single();
 
   assertExists(disc);
 
   // Link QR code to disc
-  const { data: updatedDisc } = await mockSupabaseClient
+  const { data: updatedDisc } = (await mockSupabaseClient
     .from('discs')
     .update({ qr_code_id: qrCode.id })
     .eq('id', 'disc-case')
     .select()
-    .single() as { data: MockDisc | null };
+    .single()) as { data: MockDisc | null };
 
   assertExists(updatedDisc);
   assertEquals(updatedDisc.qr_code_id, qrCode.id);

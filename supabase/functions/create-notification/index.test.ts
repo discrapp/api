@@ -32,7 +32,7 @@ const VALID_NOTIFICATION_TYPES = [
 // Mock Supabase client
 const mockSupabaseClient = {
   from: (table: string) => ({
-    insert: (data: Omit<MockNotification, 'id' | 'created_at'>) => ({
+    insert: (data: Omit<MockNotification, 'id' | 'created_at' | 'read' | 'dismissed'>) => ({
       select: () => ({
         single: () => {
           if (table === 'notifications') {

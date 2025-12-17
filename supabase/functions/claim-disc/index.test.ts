@@ -40,7 +40,7 @@ const mockSupabaseClient = {
     },
   },
   from: (table: string) => ({
-    select: (columns?: string) => ({
+    select: (_columns?: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'discs') {
@@ -145,11 +145,7 @@ Deno.test('claim-disc - returns 404 when disc not found', async () => {
 
   const disc_id = '00000000-0000-0000-0000-000000000000';
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', disc_id)
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', disc_id).single();
 
   if (!disc) {
     const response = new Response(JSON.stringify({ error: 'Disc not found' }), {
@@ -174,11 +170,9 @@ Deno.test('claim-disc - returns 400 when disc already has an owner', async () =>
     mold: 'Destroyer',
   });
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-123')
-    .single() as { data: MockDisc | null };
+  const { data: disc } = (await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-123').single()) as {
+    data: MockDisc | null;
+  };
 
   if (disc && disc.owner_id) {
     const response = new Response(JSON.stringify({ error: 'This disc already has an owner and cannot be claimed' }), {
@@ -206,20 +200,18 @@ Deno.test('claim-disc - user can successfully claim an ownerless disc', async ()
   const { data: authData } = await mockSupabaseClient.auth.getUser();
   assertExists(authData.user);
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-456')
-    .single() as { data: MockDisc | null };
+  const { data: disc } = (await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-456').single()) as {
+    data: MockDisc | null;
+  };
 
   assertExists(disc);
   assertEquals(disc.owner_id, null);
 
   // Claim the disc
-  const { data: updatedDisc } = await mockSupabaseClient
+  const { data: updatedDisc } = (await mockSupabaseClient
     .from('discs')
     .update({ owner_id: authData.user.id })
-    .eq('id', 'disc-456') as { data: MockDisc | null };
+    .eq('id', 'disc-456')) as { data: MockDisc | null };
 
   assertExists(updatedDisc);
   assertEquals(updatedDisc.owner_id, 'user-123');
@@ -268,20 +260,17 @@ Deno.test('claim-disc - claiming closes abandoned recovery events', async () => 
   assertExists(authData.user);
 
   // Check for abandoned recovery
-  const { data: recovery } = await mockSupabaseClient
+  const { data: recovery } = (await mockSupabaseClient
     .from('recovery_events')
     .select('*')
     .eq('disc_id', 'disc-789')
-    .single() as { data: MockRecoveryEvent | null };
+    .single()) as { data: MockRecoveryEvent | null };
 
   assertExists(recovery);
   assertEquals(recovery.status, 'abandoned');
 
   // Claim the disc
-  await mockSupabaseClient
-    .from('discs')
-    .update({ owner_id: authData.user.id })
-    .eq('id', 'disc-789');
+  await mockSupabaseClient.from('discs').update({ owner_id: authData.user.id }).eq('id', 'disc-789');
 
   // Close abandoned recovery
   await mockSupabaseClient
@@ -293,11 +282,11 @@ Deno.test('claim-disc - claiming closes abandoned recovery events', async () => 
     .eq('id', 'recovery-123');
 
   // Verify recovery status updated
-  const { data: updatedRecovery } = await mockSupabaseClient
+  const { data: updatedRecovery } = (await mockSupabaseClient
     .from('recovery_events')
     .select('*')
     .eq('id', 'recovery-123')
-    .single() as { data: MockRecoveryEvent | null };
+    .single()) as { data: MockRecoveryEvent | null };
 
   assertExists(updatedRecovery);
   assertEquals(updatedRecovery.status, 'recovered');

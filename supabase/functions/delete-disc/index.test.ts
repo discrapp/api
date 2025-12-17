@@ -27,7 +27,7 @@ const mockSupabaseClient = {
     },
   },
   from: (table: string) => ({
-    select: (columns?: string) => ({
+    select: (_columns?: string) => ({
       eq: (column: string, value: string) => ({
         single: () => {
           if (table === 'discs') {
@@ -113,11 +113,7 @@ Deno.test('delete-disc - returns 404 when disc does not exist', async () => {
 
   const disc_id = '00000000-0000-0000-0000-000000000000';
 
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', disc_id)
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', disc_id).single();
 
   if (!disc) {
     const response = new Response(JSON.stringify({ error: 'Disc not found' }), {
@@ -148,11 +144,7 @@ Deno.test('delete-disc - should successfully delete owned disc', async () => {
   mockDiscs.push(newDisc);
 
   // Verify disc exists
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-456')
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-456').single();
 
   assertExists(disc);
   assertEquals(disc.owner_id, authData.user.id);
@@ -177,11 +169,7 @@ Deno.test('delete-disc - should successfully delete owned disc', async () => {
   assertEquals(body.message, 'Disc deleted successfully');
 
   // Verify disc is deleted
-  const { data: deletedDisc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-456')
-    .single();
+  const { data: deletedDisc } = await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-456').single();
 
   assertEquals(deletedDisc, null);
 });
@@ -203,11 +191,7 @@ Deno.test("delete-disc - should return 403 when trying to delete another user's 
   mockDiscs.push(otherUserDisc);
 
   // Try to get the disc
-  const { data: disc } = await mockSupabaseClient
-    .from('discs')
-    .select('*')
-    .eq('id', 'disc-789')
-    .single();
+  const { data: disc } = await mockSupabaseClient.from('discs').select('*').eq('id', 'disc-789').single();
 
   assertExists(disc);
 

@@ -106,7 +106,12 @@ Deno.test('mark-notification-read - can mark single notification as read', async
     },
   ];
 
-  const result = await mockSupabaseClient.from('notifications').update({ read: true }).eq('id', 'notif-1').select().single();
+  const result = await mockSupabaseClient
+    .from('notifications')
+    .update({ read: true })
+    .eq('id', 'notif-1')
+    .select()
+    .single();
 
   assertExists(result.data);
   assertEquals(result.data.read, true);
@@ -179,7 +184,10 @@ Deno.test('mark-notification-read - can mark all notifications as read', async (
   const data = await response.json();
   assertEquals(data.success, true);
   assertEquals(data.marked_count, 2);
-  assertEquals(mockNotifications.every((n) => n.read), true);
+  assertEquals(
+    mockNotifications.every((n) => n.read),
+    true
+  );
 });
 
 Deno.test('mark-notification-read - cannot mark other user notification as read', async () => {

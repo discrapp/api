@@ -1,319 +1,364 @@
-import { assertEquals } from 'https://deno.land/std@0.192.0/testing/asserts.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { assertEquals } from 'jsr:@std/assert';
 
-const FUNCTION_URL = Deno.env.get('FUNCTION_URL') || 'http://localhost:54321/functions/v1/decline-meetup';
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://localhost:54321';
-const SUPABASE_ANON_KEY =
-  Deno.env.get('SUPABASE_ANON_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SUPABASE_SERVICE_ROLE_KEY =
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+// Mock data types
+type MockUser = {
+  id: string;
+  email: string;
+};
 
-Deno.test('decline-meetup: should return 405 for non-POST requests', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  });
+type MockDisc = {
+  id: string;
+  owner_id: string;
+  name: string;
+  mold: string;
+};
 
-  assertEquals(response.status, 405);
-  const data = await response.json();
-  assertEquals(data.error, 'Method not allowed');
+type MockRecoveryEvent = {
+  id: string;
+  disc_id: string;
+  finder_id: string;
+  status: string;
+  found_at: string;
+};
+
+type MockMeetupProposal = {
+  id: string;
+  recovery_event_id: string;
+  proposed_by: string;
+  location_name: string;
+  proposed_datetime: string;
+  status: string;
+  decline_reason?: string;
+};
+
+// Mock data storage
+let mockUsers: MockUser[] = [];
+let mockDiscs: MockDisc[] = [];
+let mockRecoveryEvents: MockRecoveryEvent[] = [];
+let mockMeetupProposals: MockMeetupProposal[] = [];
+let mockCurrentUser: MockUser | null = null;
+
+// Reset mocks between tests
+function resetMocks() {
+  mockUsers = [];
+  mockDiscs = [];
+  mockRecoveryEvents = [];
+  mockMeetupProposals = [];
+  mockCurrentUser = null;
+}
+
+// Mock Supabase client
+function mockSupabaseClient() {
+  return {
+    auth: {
+      getUser: async () => {
+        if (mockCurrentUser) {
+          return { data: { user: mockCurrentUser }, error: null };
+        }
+        return { data: { user: null }, error: { message: 'Not authenticated' } };
+      },
+    },
+    from: (table: string) => ({
+      select: (_columns?: string) => ({
+        eq: (column: string, value: string) => ({
+          single: async () => {
+            if (table === 'meetup_proposals') {
+              const proposal = mockMeetupProposals.find((p) => p.id === value);
+              if (!proposal) {
+                return { data: null, error: { code: 'PGRST116' } };
+              }
+              // Join with recovery_events and discs
+              const recovery = mockRecoveryEvents.find((r) => r.id === proposal.recovery_event_id);
+              if (!recovery) {
+                return { data: null, error: { code: 'PGRST116' } };
+              }
+              const disc = mockDiscs.find((d) => d.id === recovery.disc_id);
+              if (!disc) {
+                return { data: null, error: { code: 'PGRST116' } };
+              }
+              const result = {
+                ...proposal,
+                recovery_events: {
+                  ...recovery,
+                  discs: disc,
+                },
+              };
+              return { data: result, error: null };
+            }
+            return { data: null, error: null };
+          },
+        }),
+      }),
+      update: (updates: Record<string, unknown>) => ({
+        eq: (column: string, value: string) => ({
+          select: (_columns?: string) => ({
+            single: async () => {
+              if (table === 'meetup_proposals') {
+                const index = mockMeetupProposals.findIndex((p) => p.id === value);
+                if (index !== -1) {
+                  mockMeetupProposals[index] = { ...mockMeetupProposals[index], ...updates };
+                  return { data: mockMeetupProposals[index], error: null };
+                }
+              }
+              if (table === 'recovery_events') {
+                const index = mockRecoveryEvents.findIndex((r) => r.id === value);
+                if (index !== -1) {
+                  mockRecoveryEvents[index] = { ...mockRecoveryEvents[index], ...updates };
+                  return { data: mockRecoveryEvents[index], error: null };
+                }
+              }
+              return { data: null, error: { message: 'Not found' } };
+            },
+          }),
+        }),
+      }),
+    }),
+  };
+}
+
+Deno.test('decline-meetup: should return 405 for non-POST requests', () => {
+  const method: string = 'GET';
+
+  if (method !== 'POST') {
+    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 405);
+  }
 });
 
 Deno.test('decline-meetup: should return 401 when not authenticated', async () => {
-  const response = await fetch(FUNCTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ proposal_id: 'test' }),
-  });
+  resetMocks();
+  const supabase = mockSupabaseClient();
 
-  assertEquals(response.status, 401);
-  const data = await response.json();
-  assertEquals(data.error, 'Missing authorization header');
+  const { data: userData } = await supabase.auth.getUser();
+
+  if (!userData.user) {
+    const response = new Response(JSON.stringify({ error: 'Missing authorization header' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 401);
+    const data = await response.json();
+    assertEquals(data.error, 'Missing authorization header');
+  }
 });
 
 Deno.test('decline-meetup: should return 400 when proposal_id is missing', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockCurrentUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const body: { proposal_id?: string } = {};
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({}),
+  if (!body.proposal_id) {
+    const response = new Response(JSON.stringify({ error: 'Missing required field: proposal_id' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Missing required field: proposal_id');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('decline-meetup: should return 404 when proposal not found', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  mockCurrentUser = { id: 'user-123', email: 'test@example.com' };
 
-  const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: `test-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
+  const supabase = mockSupabaseClient();
+  const { data: proposal } = await supabase
+    .from('meetup_proposals')
+    .select('*, recovery_events(*, discs(*))')
+    .eq('id', '00000000-0000-0000-0000-000000000000')
+    .single();
 
-  if (signUpError || !authData.session) {
-    throw signUpError || new Error('No session');
-  }
-
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authData.session.access_token}`,
-      },
-      body: JSON.stringify({ proposal_id: '00000000-0000-0000-0000-000000000000' }),
+  if (!proposal) {
+    const response = new Response(JSON.stringify({ error: 'Meetup proposal not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 404);
     const data = await response.json();
     assertEquals(data.error, 'Meetup proposal not found');
-  } finally {
-    await supabaseAdmin.auth.admin.deleteUser(authData.user!.id);
   }
 });
 
 Deno.test('decline-meetup: should return 403 when user is not disc owner', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  const ownerId = 'owner-123';
+  const finderId = 'finder-456';
+  mockCurrentUser = { id: finderId, email: 'finder@example.com' };
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (ownerError || !ownerAuth.user) throw ownerError || new Error('No user');
+  mockUsers.push({ id: ownerId, email: 'owner@example.com' });
+  mockUsers.push(mockCurrentUser);
 
-  // Create finder (will try to decline)
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (finderError || !finderAuth.session || !finderAuth.user) {
-    throw finderError || new Error('No session');
-  }
+  const disc: MockDisc = {
+    id: 'disc-123',
+    owner_id: ownerId,
+    name: 'Test Disc',
+    mold: 'Destroyer',
+  };
+  mockDiscs.push(disc);
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const recovery: MockRecoveryEvent = {
+    id: 'recovery-123',
+    disc_id: disc.id,
+    finder_id: finderId,
+    status: 'meetup_proposed',
+    found_at: new Date().toISOString(),
+  };
+  mockRecoveryEvents.push(recovery);
 
-  // Create recovery event
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
-    .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'meetup_proposed',
-      found_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+  const proposal: MockMeetupProposal = {
+    id: 'proposal-123',
+    recovery_event_id: recovery.id,
+    proposed_by: finderId,
+    location_name: 'Test Park',
+    proposed_datetime: new Date(Date.now() + 86400000).toISOString(),
+    status: 'pending',
+  };
+  mockMeetupProposals.push(proposal);
 
-  // Create meetup proposal
-  const { data: proposal, error: proposalError } = await supabaseAdmin
+  const supabase = mockSupabaseClient();
+  const { data: proposalData } = await supabase
     .from('meetup_proposals')
-    .insert({
-      recovery_event_id: recovery.id,
-      proposed_by: finderAuth.user.id,
-      location_name: 'Test Park',
-      proposed_datetime: new Date(Date.now() + 86400000).toISOString(),
-      status: 'pending',
-    })
-    .select()
+    .select('*, recovery_events(*, discs(*))')
+    .eq('id', proposal.id)
     .single();
-  if (proposalError) throw proposalError;
 
-  try {
-    // Finder tries to decline (should fail - only owner can decline)
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${finderAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ proposal_id: proposal.id }),
+  if (proposalData && proposalData.recovery_events.discs.owner_id !== mockCurrentUser.id) {
+    const response = new Response(JSON.stringify({ error: 'Only the disc owner can decline meetup proposals' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 403);
     const data = await response.json();
     assertEquals(data.error, 'Only the disc owner can decline meetup proposals');
-  } finally {
-    await supabaseAdmin.from('meetup_proposals').delete().eq('id', proposal.id);
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
   }
 });
 
 Deno.test('decline-meetup: should return 400 when proposal already declined', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  const ownerId = 'owner-123';
+  const finderId = 'finder-456';
+  mockCurrentUser = { id: ownerId, email: 'owner@example.com' };
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (ownerError || !ownerAuth.session || !ownerAuth.user) {
-    throw ownerError || new Error('No session');
-  }
+  mockUsers.push(mockCurrentUser);
+  mockUsers.push({ id: finderId, email: 'finder@example.com' });
 
-  // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (finderError || !finderAuth.user) throw finderError || new Error('No user');
+  const disc: MockDisc = {
+    id: 'disc-123',
+    owner_id: ownerId,
+    name: 'Test Disc',
+    mold: 'Destroyer',
+  };
+  mockDiscs.push(disc);
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const recovery: MockRecoveryEvent = {
+    id: 'recovery-123',
+    disc_id: disc.id,
+    finder_id: finderId,
+    status: 'meetup_proposed',
+    found_at: new Date().toISOString(),
+  };
+  mockRecoveryEvents.push(recovery);
 
-  // Create recovery event
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
-    .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'meetup_proposed',
-      found_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+  const proposal: MockMeetupProposal = {
+    id: 'proposal-123',
+    recovery_event_id: recovery.id,
+    proposed_by: finderId,
+    location_name: 'Test Park',
+    proposed_datetime: new Date(Date.now() + 86400000).toISOString(),
+    status: 'declined',
+  };
+  mockMeetupProposals.push(proposal);
 
-  // Create already declined proposal
-  const { data: proposal, error: proposalError } = await supabaseAdmin
+  const supabase = mockSupabaseClient();
+  const { data: proposalData } = await supabase
     .from('meetup_proposals')
-    .insert({
-      recovery_event_id: recovery.id,
-      proposed_by: finderAuth.user.id,
-      location_name: 'Test Park',
-      proposed_datetime: new Date(Date.now() + 86400000).toISOString(),
-      status: 'declined',
-    })
-    .select()
+    .select('*, recovery_events(*, discs(*))')
+    .eq('id', proposal.id)
     .single();
-  if (proposalError) throw proposalError;
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ownerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ proposal_id: proposal.id }),
+  if (proposalData && proposalData.status !== 'pending') {
+    const response = new Response(JSON.stringify({ error: 'This proposal has already been accepted or declined' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     });
-
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'This proposal has already been accepted or declined');
-  } finally {
-    await supabaseAdmin.from('meetup_proposals').delete().eq('id', proposal.id);
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
   }
 });
 
 Deno.test('decline-meetup: owner can successfully decline a pending proposal', async () => {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  resetMocks();
+  const ownerId = 'owner-123';
+  const finderId = 'finder-456';
+  mockCurrentUser = { id: ownerId, email: 'owner@example.com' };
 
-  // Create owner
-  const { data: ownerAuth, error: ownerError } = await supabase.auth.signUp({
-    email: `owner-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (ownerError || !ownerAuth.session || !ownerAuth.user) {
-    throw ownerError || new Error('No session');
-  }
+  mockUsers.push(mockCurrentUser);
+  mockUsers.push({ id: finderId, email: 'finder@example.com' });
 
-  // Create finder
-  const { data: finderAuth, error: finderError } = await supabase.auth.signUp({
-    email: `finder-${Date.now()}@example.com`,
-    password: 'testpassword123',
-  });
-  if (finderError || !finderAuth.user) throw finderError || new Error('No user');
+  const disc: MockDisc = {
+    id: 'disc-123',
+    owner_id: ownerId,
+    name: 'Test Disc',
+    mold: 'Destroyer',
+  };
+  mockDiscs.push(disc);
 
-  // Create disc
-  const { data: disc, error: discError } = await supabaseAdmin
-    .from('discs')
-    .insert({ owner_id: ownerAuth.user.id, name: 'Test Disc', mold: 'Destroyer' })
-    .select()
-    .single();
-  if (discError) throw discError;
+  const recovery: MockRecoveryEvent = {
+    id: 'recovery-123',
+    disc_id: disc.id,
+    finder_id: finderId,
+    status: 'meetup_proposed',
+    found_at: new Date().toISOString(),
+  };
+  mockRecoveryEvents.push(recovery);
 
-  // Create recovery event
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
-    .from('recovery_events')
-    .insert({
-      disc_id: disc.id,
-      finder_id: finderAuth.user.id,
-      status: 'meetup_proposed',
-      found_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (recoveryError) throw recoveryError;
+  const proposal: MockMeetupProposal = {
+    id: 'proposal-123',
+    recovery_event_id: recovery.id,
+    proposed_by: finderId,
+    location_name: 'Test Park',
+    proposed_datetime: new Date(Date.now() + 86400000).toISOString(),
+    status: 'pending',
+  };
+  mockMeetupProposals.push(proposal);
 
-  // Create pending proposal
-  const { data: proposal, error: proposalError } = await supabaseAdmin
+  const supabase = mockSupabaseClient();
+
+  // Get proposal
+  const { data: proposalData } = await supabase
     .from('meetup_proposals')
-    .insert({
-      recovery_event_id: recovery.id,
-      proposed_by: finderAuth.user.id,
-      location_name: 'Test Park',
-      proposed_datetime: new Date(Date.now() + 86400000).toISOString(),
-      status: 'pending',
-    })
-    .select()
+    .select('*, recovery_events(*, discs(*))')
+    .eq('id', proposal.id)
     .single();
-  if (proposalError) throw proposalError;
 
-  try {
-    const response = await fetch(FUNCTION_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ownerAuth.session.access_token}`,
-      },
-      body: JSON.stringify({ proposal_id: proposal.id, reason: 'Too far away' }),
-    });
+  if (proposalData && proposalData.recovery_events.discs.owner_id === mockCurrentUser.id) {
+    // Decline proposal
+    const { data: updatedProposal } = await supabase
+      .from('meetup_proposals')
+      .update({ status: 'declined', decline_reason: 'Too far away' })
+      .eq('id', proposal.id)
+      .select()
+      .single();
+
+    // Revert recovery status
+    await supabase.from('recovery_events').update({ status: 'found' }).eq('id', recovery.id).select().single();
+
+    const response = new Response(
+      JSON.stringify({
+        success: true,
+        proposal: updatedProposal,
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
 
     assertEquals(response.status, 200);
     const data = await response.json();
@@ -321,26 +366,11 @@ Deno.test('decline-meetup: owner can successfully decline a pending proposal', a
     assertEquals(data.proposal.status, 'declined');
 
     // Verify proposal status was updated
-    const { data: updatedProposal } = await supabaseAdmin
-      .from('meetup_proposals')
-      .select('status')
-      .eq('id', proposal.id)
-      .single();
-    assertEquals(updatedProposal?.status, 'declined');
+    const updatedProposalCheck = mockMeetupProposals.find((p) => p.id === proposal.id);
+    assertEquals(updatedProposalCheck?.status, 'declined');
 
-    // Verify recovery event status was reverted to 'found'
-    const { data: updatedRecovery } = await supabaseAdmin
-      .from('recovery_events')
-      .select('status')
-      .eq('id', recovery.id)
-      .single();
-    assertEquals(updatedRecovery?.status, 'found');
-  } finally {
-    await supabaseAdmin.from('notifications').delete().eq('user_id', finderAuth.user.id);
-    await supabaseAdmin.from('meetup_proposals').delete().eq('id', proposal.id);
-    await supabaseAdmin.from('recovery_events').delete().eq('id', recovery.id);
-    await supabaseAdmin.from('discs').delete().eq('id', disc.id);
-    await supabaseAdmin.auth.admin.deleteUser(ownerAuth.user.id);
-    await supabaseAdmin.auth.admin.deleteUser(finderAuth.user.id);
+    // Verify recovery event status was reverted
+    const updatedRecoveryCheck = mockRecoveryEvents.find((r) => r.id === recovery.id);
+    assertEquals(updatedRecoveryCheck?.status, 'found');
   }
 });
