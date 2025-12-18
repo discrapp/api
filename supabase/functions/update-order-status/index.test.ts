@@ -1,4 +1,4 @@
-import { assertEquals, assertExists } from 'jsr:@std/assert';
+import { assertEquals, assertExists, assertStringIncludes } from 'jsr:@std/assert';
 
 // Mock Supabase client
 type MockOrderData = {
@@ -78,23 +78,47 @@ function resetMocks() {
   mockFetchCalls = [];
 }
 
-Deno.test('update-order-status - returns 405 for non-POST requests', async () => {
-  const req = new Request('http://localhost/update-order-status', {
-    method: 'GET',
-  });
+// Constants from the function
+const WEB_APP_URL = 'https://aceback.app';
+const VALID_STATUSES = ['processing', 'printed', 'shipped', 'delivered'];
+const STATUS_TRANSITIONS: Record<string, string[]> = {
+  pending_payment: [],
+  paid: ['processing', 'printed'],
+  processing: ['printed'],
+  printed: ['shipped'],
+  shipped: ['delivered'],
+  delivered: [],
+  cancelled: [],
+};
 
-  if (req.method !== 'POST') {
-    const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
-    assertEquals(response.status, 405);
-    const body = await response.json();
-    assertEquals(body.error, 'Method not allowed');
+// Helper to simulate errorResponse function behavior
+function errorResponse(error: string, _statusCode: number, isGet: boolean): Response {
+  if (isGet) {
+    const redirectUrl = new URL(`${WEB_APP_URL}/order-updated`);
+    redirectUrl.searchParams.set('error', error);
+    return Response.redirect(redirectUrl.toString(), 302);
   }
+  return new Response(JSON.stringify({ error }), {
+    status: _statusCode,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// ============================================
+// POST Request Tests (JSON responses)
+// ============================================
+
+Deno.test('POST - returns 405 for unsupported methods', async () => {
+  const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
+    status: 405,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  assertEquals(response.status, 405);
+  const body = await response.json();
+  assertEquals(body.error, 'Method not allowed');
 });
 
-Deno.test('update-order-status - returns 400 for invalid JSON body', async () => {
+Deno.test('POST - returns 400 for invalid JSON body', async () => {
   const req = new Request('http://localhost/update-order-status', {
     method: 'POST',
     body: 'invalid json',
@@ -119,50 +143,31 @@ Deno.test('update-order-status - returns 400 for invalid JSON body', async () =>
   }
 });
 
-Deno.test('update-order-status - returns 400 when printer_token is missing', async () => {
-  const body = { status: 'printed' };
-
-  if (!('printer_token' in body) || !body.printer_token) {
-    const response = new Response(JSON.stringify({ error: 'Missing required field: printer_token' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-    assertEquals(response.status, 400);
-    const respBody = await response.json();
-    assertEquals(respBody.error, 'Missing required field: printer_token');
-  }
+Deno.test('POST - returns 400 JSON when printer_token is missing', async () => {
+  const response = errorResponse('Missing required field: printer_token', 400, false);
+  assertEquals(response.status, 400);
+  const body = await response.json();
+  assertEquals(body.error, 'Missing required field: printer_token');
 });
 
-Deno.test('update-order-status - returns 400 when status is missing', async () => {
-  const body = { printer_token: '00000000-0000-0000-0000-000000000000' };
-
-  if (!('status' in body) || !body.status) {
-    const response = new Response(JSON.stringify({ error: 'Missing required field: status' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-    assertEquals(response.status, 400);
-    const respBody = await response.json();
-    assertEquals(respBody.error, 'Missing required field: status');
-  }
+Deno.test('POST - returns 400 JSON when status is missing', async () => {
+  const response = errorResponse('Missing required field: status', 400, false);
+  assertEquals(response.status, 400);
+  const body = await response.json();
+  assertEquals(body.error, 'Missing required field: status');
 });
 
-Deno.test('update-order-status - returns 400 when status is invalid', async () => {
-  const VALID_STATUSES = ['processing', 'printed', 'shipped', 'delivered'];
+Deno.test('POST - returns 400 JSON when status is invalid', async () => {
   const status = 'invalid_status';
-
   if (!VALID_STATUSES.includes(status)) {
-    const response = new Response(JSON.stringify({ error: 'Invalid status' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const response = errorResponse('Invalid status', 400, false);
     assertEquals(response.status, 400);
     const body = await response.json();
     assertEquals(body.error, 'Invalid status');
   }
 });
 
-Deno.test('update-order-status - returns 404 when order not found by printer_token', async () => {
+Deno.test('POST - returns 404 JSON when order not found', async () => {
   resetMocks();
 
   const result = await mockSupabaseClient
@@ -172,20 +177,28 @@ Deno.test('update-order-status - returns 404 when order not found by printer_tok
     .single();
 
   if (!result.data || result.error) {
-    const response = new Response(JSON.stringify({ error: 'Order not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const response = errorResponse('Order not found', 404, false);
     assertEquals(response.status, 404);
     const body = await response.json();
     assertEquals(body.error, 'Order not found');
   }
 });
 
-Deno.test('update-order-status - updates order status to printed', async () => {
+Deno.test('POST - returns 400 JSON when tracking_number missing for shipped', async () => {
+  const status = 'shipped';
+  const trackingNumber = undefined;
+
+  if (status === 'shipped' && !trackingNumber) {
+    const response = errorResponse('tracking_number is required when marking as shipped', 400, false);
+    assertEquals(response.status, 400);
+    const body = await response.json();
+    assertEquals(body.error, 'tracking_number is required when marking as shipped');
+  }
+});
+
+Deno.test('POST - returns JSON success for valid status update', async () => {
   resetMocks();
 
-  // Setup mock order
   mockOrders = [
     {
       id: 'order-123',
@@ -196,7 +209,6 @@ Deno.test('update-order-status - updates order status to printed', async () => {
     },
   ];
 
-  // Find order
   const { data: order } = await mockSupabaseClient
     .from('sticker_orders')
     .select('id, status, order_number, pdf_storage_path')
@@ -204,24 +216,11 @@ Deno.test('update-order-status - updates order status to printed', async () => {
     .single();
 
   assertExists(order);
-  assertEquals(order.status, 'paid');
-
-  // Validate status transition
-  const STATUS_TRANSITIONS: Record<string, string[]> = {
-    pending_payment: [],
-    paid: ['processing', 'printed'],
-    processing: ['printed'],
-    printed: ['shipped'],
-    shipped: ['delivered'],
-    delivered: [],
-    cancelled: [],
-  };
 
   const newStatus = 'printed';
   const allowedTransitions = STATUS_TRANSITIONS[order.status] || [];
   assertEquals(allowedTransitions.includes(newStatus), true);
 
-  // Update order
   const updateData = {
     status: newStatus,
     printed_at: new Date().toISOString(),
@@ -237,13 +236,115 @@ Deno.test('update-order-status - updates order status to printed', async () => {
 
   assertExists(updatedOrder);
   assertEquals(updatedOrder.status, 'printed');
-  assertExists(updatedOrder.printed_at);
+
+  // POST returns JSON
+  const response = new Response(JSON.stringify({ success: true, order: updatedOrder }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.success, true);
+  assertEquals(body.order.status, 'printed');
 });
 
-Deno.test('update-order-status - updates order status to shipped with tracking number', async () => {
+// ============================================
+// GET Request Tests (Redirect responses)
+// ============================================
+
+Deno.test('GET - redirects to error page when token is missing', () => {
+  const response = errorResponse('Missing required field: printer_token', 400, true);
+  assertEquals(response.status, 302);
+  const location = response.headers.get('location');
+  assertExists(location);
+  assertStringIncludes(location, '/order-updated');
+  assertStringIncludes(location, 'error=');
+});
+
+Deno.test('GET - redirects to error page when action is invalid', () => {
+  const response = errorResponse('Missing required field: status', 400, true);
+  assertEquals(response.status, 302);
+  const location = response.headers.get('location');
+  assertExists(location);
+  assertStringIncludes(location, '/order-updated');
+  assertStringIncludes(location, 'error=');
+});
+
+Deno.test('GET - redirects to error page when order not found', () => {
+  const response = errorResponse('Order not found', 404, true);
+  assertEquals(response.status, 302);
+  const location = response.headers.get('location');
+  assertExists(location);
+  assertStringIncludes(location, '/order-updated');
+  assertStringIncludes(location, 'error=Order');
+});
+
+Deno.test('GET - redirects to error page for invalid status transition', () => {
+  const response = errorResponse('Invalid status transition from pending_payment to shipped', 400, true);
+  assertEquals(response.status, 302);
+  const location = response.headers.get('location');
+  assertExists(location);
+  assertStringIncludes(location, '/order-updated');
+  assertStringIncludes(location, 'error=');
+});
+
+Deno.test('GET - redirects to success page after marking printed', async () => {
   resetMocks();
 
-  // Setup mock order
+  mockOrders = [
+    {
+      id: 'order-123',
+      status: 'paid',
+      order_number: 'AB-2024-001',
+      pdf_storage_path: null,
+      printer_token: 'valid-printer-token',
+    },
+  ];
+
+  const { data: order } = await mockSupabaseClient
+    .from('sticker_orders')
+    .select('id, status, order_number, pdf_storage_path')
+    .eq('printer_token', 'valid-printer-token')
+    .single();
+
+  assertExists(order);
+
+  const updateData = {
+    status: 'printed',
+    printed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: updatedOrder } = await mockSupabaseClient
+    .from('sticker_orders')
+    .update(updateData)
+    .eq('id', order.id)
+    .select('id, order_number, status')
+    .single();
+
+  assertExists(updatedOrder);
+
+  // GET redirects to success page
+  const redirectUrl = new URL(`${WEB_APP_URL}/order-updated`);
+  redirectUrl.searchParams.set('order', updatedOrder.order_number);
+  redirectUrl.searchParams.set('status', updatedOrder.status);
+
+  const response = Response.redirect(redirectUrl.toString(), 302);
+  assertEquals(response.status, 302);
+  const location = response.headers.get('location');
+  assertExists(location);
+  assertStringIncludes(location, '/order-updated');
+  assertStringIncludes(location, 'order=AB-2024-001');
+  assertStringIncludes(location, 'status=printed');
+});
+
+// ============================================
+// Status Transition & Business Logic Tests
+// ============================================
+
+Deno.test('updates order to shipped with tracking and triggers side effects', async () => {
+  resetMocks();
+
   mockOrders = [
     {
       id: 'order-123',
@@ -254,7 +355,6 @@ Deno.test('update-order-status - updates order status to shipped with tracking n
     },
   ];
 
-  // Find order
   const { data: order } = await mockSupabaseClient
     .from('sticker_orders')
     .select('id, status, order_number, pdf_storage_path')
@@ -264,23 +364,11 @@ Deno.test('update-order-status - updates order status to shipped with tracking n
   assertExists(order);
   assertEquals(order.status, 'printed');
 
-  // Validate status transition
-  const STATUS_TRANSITIONS: Record<string, string[]> = {
-    pending_payment: [],
-    paid: ['processing', 'printed'],
-    processing: ['printed'],
-    printed: ['shipped'],
-    shipped: ['delivered'],
-    delivered: [],
-    cancelled: [],
-  };
-
   const newStatus = 'shipped';
   const trackingNumber = '1Z999AA10123456784';
   const allowedTransitions = STATUS_TRANSITIONS[order.status] || [];
   assertEquals(allowedTransitions.includes(newStatus), true);
 
-  // Update order
   const updateData = {
     status: newStatus,
     shipped_at: new Date().toISOString(),
@@ -300,43 +388,24 @@ Deno.test('update-order-status - updates order status to shipped with tracking n
   assertEquals(updatedOrder.tracking_number, '1Z999AA10123456784');
   assertExists(updatedOrder.shipped_at);
 
-  // Simulate sending shipped email (as the real function would do)
+  // Simulate sending shipped email
   await fetch('http://localhost/send-order-shipped', {
     method: 'POST',
     body: JSON.stringify({ order_id: order.id }),
   });
 
-  // Verify email was sent
   const emailCall = mockFetchCalls.find((call) => call.url.includes('send-order-shipped'));
   assertExists(emailCall);
   assertEquals(emailCall.body, { order_id: order.id });
 
-  // Simulate PDF deletion (as the real function would do)
+  // Simulate PDF deletion
   await mockSupabaseClient.storage.from('stickers').remove([order.pdf_storage_path!]);
-
-  // Verify PDF was deleted
   assertEquals(mockStorageDeleted.includes('orders/test/test.pdf'), true);
 });
 
-Deno.test('update-order-status - requires tracking_number when setting status to shipped', async () => {
-  const status = 'shipped';
-  const trackingNumber = undefined;
-
-  if (status === 'shipped' && !trackingNumber) {
-    const response = new Response(JSON.stringify({ error: 'tracking_number is required when marking as shipped' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-    assertEquals(response.status, 400);
-    const body = await response.json();
-    assertEquals(body.error, 'tracking_number is required when marking as shipped');
-  }
-});
-
-Deno.test('update-order-status - rejects invalid status transitions', async () => {
+Deno.test('rejects invalid status transitions', async () => {
   resetMocks();
 
-  // Setup mock order with pending_payment status
   mockOrders = [
     {
       id: 'order-123',
@@ -347,7 +416,6 @@ Deno.test('update-order-status - rejects invalid status transitions', async () =
     },
   ];
 
-  // Find order
   const { data: order } = await mockSupabaseClient
     .from('sticker_orders')
     .select('id, status, order_number, pdf_storage_path')
@@ -357,34 +425,15 @@ Deno.test('update-order-status - rejects invalid status transitions', async () =
   assertExists(order);
   assertEquals(order.status, 'pending_payment');
 
-  // Try to transition to shipped (invalid)
-  const STATUS_TRANSITIONS: Record<string, string[]> = {
-    pending_payment: [],
-    paid: ['processing', 'printed'],
-    processing: ['printed'],
-    printed: ['shipped'],
-    shipped: ['delivered'],
-    delivered: [],
-    cancelled: [],
-  };
-
   const newStatus = 'shipped';
   const allowedTransitions = STATUS_TRANSITIONS[order.status] || [];
+  assertEquals(allowedTransitions.includes(newStatus), false);
 
-  if (!allowedTransitions.includes(newStatus)) {
-    const response = new Response(
-      JSON.stringify({
-        error: `Invalid status transition from ${order.status} to ${newStatus}`,
-      }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
-    assertEquals(response.status, 400);
-    const body = await response.json();
-    assertEquals(body.error, 'Invalid status transition from pending_payment to shipped');
-  }
+  // Should return error
+  const response = errorResponse(`Invalid status transition from ${order.status} to ${newStatus}`, 400, false);
+  assertEquals(response.status, 400);
+  const body = await response.json();
+  assertEquals(body.error, 'Invalid status transition from pending_payment to shipped');
 });
 
 // Restore original fetch after all tests

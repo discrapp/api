@@ -32,6 +32,21 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   cancelled: [], // Terminal state
 };
 
+const WEB_APP_URL = 'https://aceback.app';
+
+// Helper to return error response (redirect for GET, JSON for POST)
+function errorResponse(error: string, statusCode: number, isGet: boolean): Response {
+  if (isGet) {
+    const redirectUrl = new URL(`${WEB_APP_URL}/order-updated`);
+    redirectUrl.searchParams.set('error', error);
+    return Response.redirect(redirectUrl.toString(), 302);
+  }
+  return new Response(JSON.stringify({ error }), {
+    status: statusCode,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 Deno.serve(async (req) => {
   let printer_token: string | undefined;
   let status: string | undefined;
@@ -78,33 +93,21 @@ Deno.serve(async (req) => {
 
   // Validate required fields
   if (!printer_token) {
-    return new Response(JSON.stringify({ error: 'Missing required field: printer_token' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Missing required field: printer_token', 400, isGet);
   }
 
   if (!status) {
-    return new Response(JSON.stringify({ error: 'Missing required field: status' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Missing required field: status', 400, isGet);
   }
 
   // Validate status value
   if (!VALID_STATUSES.includes(status)) {
-    return new Response(JSON.stringify({ error: 'Invalid status' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Invalid status', 400, isGet);
   }
 
   // Require tracking_number for shipped status
   if (status === 'shipped' && !tracking_number) {
-    return new Response(JSON.stringify({ error: 'tracking_number is required when marking as shipped' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('tracking_number is required when marking as shipped', 400, isGet);
   }
 
   // Use service role for database operations
@@ -120,24 +123,13 @@ Deno.serve(async (req) => {
     .single();
 
   if (orderError || !order) {
-    return new Response(JSON.stringify({ error: 'Order not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Order not found', 404, isGet);
   }
 
   // Validate status transition
   const allowedTransitions = STATUS_TRANSITIONS[order.status] || [];
   if (!allowedTransitions.includes(status)) {
-    return new Response(
-      JSON.stringify({
-        error: `Invalid status transition from ${order.status} to ${status}`,
-      }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return errorResponse(`Invalid status transition from ${order.status} to ${status}`, 400, isGet);
   }
 
   // Build update object
@@ -174,10 +166,7 @@ Deno.serve(async (req) => {
 
   if (updateError) {
     console.error('Failed to update order:', updateError);
-    return new Response(JSON.stringify({ error: 'Failed to update order status' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return errorResponse('Failed to update order status', 500, isGet);
   }
 
   // When order is shipped, send notification and clean up PDF
@@ -227,69 +216,13 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Return HTML for GET requests (opened in browser from email)
+  // Redirect to web app for GET requests (opened in browser from email)
   if (isGet) {
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Order Updated</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      margin: 0;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    .container {
-      background: white;
-      padding: 40px;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      text-align: center;
-      max-width: 400px;
-    }
-    .icon {
-      font-size: 64px;
-      margin-bottom: 20px;
-    }
-    h1 {
-      color: #333;
-      margin: 0 0 10px 0;
-    }
-    p {
-      color: #666;
-      margin: 10px 0;
-    }
-    .order-number {
-      font-weight: bold;
-      color: #667eea;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="icon">✅</div>
-    <h1>Order Updated!</h1>
-    <p>Order <span class="order-number">${updatedOrder?.order_number}</span></p>
-    <p>Status: <strong>${updatedOrder?.status}</strong></p>
-    ${updatedOrder?.tracking_number ? `<p>Tracking: ${updatedOrder.tracking_number}</p>` : ''}
-    <p style="margin-top: 30px; font-size: 14px; color: #999;">
-      You can close this window.
-    </p>
-  </div>
-</body>
-</html>`;
+    const redirectUrl = new URL(`${WEB_APP_URL}/order-updated`);
+    redirectUrl.searchParams.set('order', updatedOrder?.order_number ?? '');
+    redirectUrl.searchParams.set('status', updatedOrder?.status ?? '');
 
-    return new Response(html, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    });
+    return Response.redirect(redirectUrl.toString(), 302);
   }
 
   // Return JSON for POST requests

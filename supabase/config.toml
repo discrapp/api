@@ -498,3 +498,50 @@ entrypoint = "./functions/create-drop-off/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/create-drop-off/*.html" ]
+
+# Sticker order functions
+[functions.create-sticker-order]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/create-sticker-order/index.ts"
+
+[functions.get-sticker-order]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/get-sticker-order/index.ts"
+
+[functions.get-sticker-orders]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/get-sticker-orders/index.ts"
+
+[functions.generate-order-qr-codes]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/generate-order-qr-codes/index.ts"
+
+[functions.generate-sticker-pdf]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/generate-sticker-pdf/index.ts"
+
+[functions.send-order-confirmation]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/send-order-confirmation/index.ts"
+
+[functions.send-printer-notification]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/send-printer-notification/index.ts"
+
+[functions.send-order-shipped]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/send-order-shipped/index.ts"
+
+# Note: verify_jwt = false because this is accessed via email links with printer_token
+[functions.update-order-status]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/update-order-status/index.ts"
