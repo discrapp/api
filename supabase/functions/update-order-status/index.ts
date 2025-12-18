@@ -33,26 +33,48 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
 };
 
 Deno.serve(async (req) => {
-  // Only allow POST requests
-  if (req.method !== 'POST') {
+  let printer_token: string | undefined;
+  let status: string | undefined;
+  let tracking_number: string | undefined;
+  const isGet = req.method === 'GET';
+
+  if (isGet) {
+    // Parse query parameters for GET requests (email links)
+    const url = new URL(req.url);
+    printer_token = url.searchParams.get('token') || undefined;
+    const action = url.searchParams.get('action');
+    tracking_number = url.searchParams.get('tracking_number') || undefined;
+
+    // Map action to status
+    if (action === 'mark_printed') {
+      status = 'printed';
+    } else if (action === 'mark_shipped') {
+      status = 'shipped';
+    } else if (action === 'mark_processing') {
+      status = 'processing';
+    } else if (action === 'mark_delivered') {
+      status = 'delivered';
+    }
+  } else if (req.method === 'POST') {
+    // Parse JSON body for POST requests
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    printer_token = body.printer_token;
+    status = body.status;
+    tracking_number = body.tracking_number;
+  } else {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
       headers: { 'Content-Type': 'application/json' },
     });
   }
-
-  // Parse request body
-  let body;
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const { printer_token, status, tracking_number } = body;
 
   // Validate required fields
   if (!printer_token) {
@@ -205,6 +227,72 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Return HTML for GET requests (opened in browser from email)
+  if (isGet) {
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Updated</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      text-align: center;
+      max-width: 400px;
+    }
+    .icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      color: #333;
+      margin: 0 0 10px 0;
+    }
+    p {
+      color: #666;
+      margin: 10px 0;
+    }
+    .order-number {
+      font-weight: bold;
+      color: #667eea;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">✅</div>
+    <h1>Order Updated!</h1>
+    <p>Order <span class="order-number">${updatedOrder?.order_number}</span></p>
+    <p>Status: <strong>${updatedOrder?.status}</strong></p>
+    ${updatedOrder?.tracking_number ? `<p>Tracking: ${updatedOrder.tracking_number}</p>` : ''}
+    <p style="margin-top: 30px; font-size: 14px; color: #999;">
+      You can close this window.
+    </p>
+  </div>
+</body>
+</html>`;
+
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    });
+  }
+
+  // Return JSON for POST requests
   return new Response(
     JSON.stringify({
       success: true,

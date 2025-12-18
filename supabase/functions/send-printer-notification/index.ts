@@ -18,7 +18,8 @@ import { sendEmail } from '../_shared/email.ts';
 
 // Printer email from environment
 const PRINTER_EMAIL = Deno.env.get('PRINTER_EMAIL') || 'printer@aceback.app';
-const API_URL = Deno.env.get('API_URL') || 'https://api.aceback.app';
+// Use Supabase URL for edge function links (custom domain can be added later)
+const API_URL = Deno.env.get('SUPABASE_URL') || 'https://xhaogdigrsiwxdjmjzgx.supabase.co';
 
 Deno.serve(async (req) => {
   // Only allow POST requests
