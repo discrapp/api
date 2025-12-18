@@ -296,13 +296,10 @@ Deno.test('mark-disc-retrieved: should return 400 for recovery not in dropped_of
   assertExists(recoveryData);
 
   if (recoveryData.status !== 'dropped_off') {
-    const response = new Response(
-      JSON.stringify({ error: 'Can only mark as retrieved for a drop-off recovery' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Can only mark as retrieved for a drop-off recovery' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Can only mark as retrieved for a drop-off recovery');

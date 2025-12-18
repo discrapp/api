@@ -288,13 +288,10 @@ Deno.test('relinquish-disc: should return 400 for recovery not in dropped_off st
   assertExists(recoveryData);
 
   if (recoveryData.status !== 'dropped_off') {
-    const response = new Response(
-      JSON.stringify({ error: 'Can only relinquish a disc in drop-off status' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Can only relinquish a disc in drop-off status' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Can only relinquish a disc in drop-off status');
