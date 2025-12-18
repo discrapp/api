@@ -19,13 +19,13 @@ import { LOGO_BASE64 } from './logo-data.ts';
  */
 
 // Sticker dimensions in points (72 points = 1 inch)
-const STICKER_WIDTH = 144; // 2 inches
+const STICKER_WIDTH = 108; // 1.5 inches
 const STICKER_HEIGHT = 144; // 2 inches
 const QR_SIZE = 85; // QR code size in points
 const MARGIN = 10;
 const PAGE_MARGIN = 36; // 0.5 inch margin
-const STICKERS_PER_ROW = 4;
-const STICKERS_PER_COL = 5;
+const STICKERS_PER_ROW = 5; // Fits 5 across with 1.5" width (5 × 108 + margins = ~600pt)
+const STICKERS_PER_COL = 5; // 25 stickers per page (was 20)
 
 // Note: PerfCutContour spot color for Roland VersaWorks
 // Currently using magenta RGB as placeholder - actual spot color
