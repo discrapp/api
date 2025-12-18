@@ -114,7 +114,8 @@ Deno.serve(async (req) => {
 
   // Generate action URLs with printer token
   const markPrintedUrl = `${API_URL}/functions/v1/update-order-status?action=mark_printed&token=${order.printer_token}`;
-  const markShippedUrl = `${API_URL}/functions/v1/update-order-status?action=mark_shipped&token=${order.printer_token}`;
+  // Ship order goes to web form (requires tracking number input)
+  const markShippedUrl = `https://aceback.app/ship-order?token=${order.printer_token}`;
 
   // Format shipping address
   const addressLines = [

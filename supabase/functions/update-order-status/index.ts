@@ -22,10 +22,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const VALID_STATUSES = ['processing', 'printed', 'shipped', 'delivered'];
 
 // Valid status transitions
+// Note: shipped is allowed from paid/processing/printed since shipping implies printing is done
 const STATUS_TRANSITIONS: Record<string, string[]> = {
   pending_payment: [], // Can't transition from pending_payment via this endpoint
-  paid: ['processing', 'printed'], // Can go to processing or skip to printed
-  processing: ['printed'],
+  paid: ['processing', 'printed', 'shipped'], // Can skip to shipped (auto-sets printed)
+  processing: ['printed', 'shipped'], // Can skip to shipped (auto-sets printed)
   printed: ['shipped'],
   shipped: ['delivered'],
   delivered: [], // Terminal state
@@ -105,10 +106,7 @@ Deno.serve(async (req) => {
     return errorResponse('Invalid status', 400, isGet);
   }
 
-  // Require tracking_number for shipped status
-  if (status === 'shipped' && !tracking_number) {
-    return errorResponse('tracking_number is required when marking as shipped', 400, isGet);
-  }
+  // tracking_number is optional for shipped status (some orders ship without tracking)
 
   // Use service role for database operations
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
@@ -139,11 +137,19 @@ Deno.serve(async (req) => {
   };
 
   // Set timestamp fields based on status
+  const now = new Date().toISOString();
   if (status === 'printed') {
-    updateData.printed_at = new Date().toISOString();
+    updateData.printed_at = now;
   } else if (status === 'shipped') {
-    updateData.shipped_at = new Date().toISOString();
-    updateData.tracking_number = tracking_number;
+    updateData.shipped_at = now;
+    // Only set tracking_number if provided (optional for shipments without tracking)
+    if (tracking_number) {
+      updateData.tracking_number = tracking_number;
+    }
+    // Auto-set printed_at if skipping from paid/processing to shipped
+    if (order.status === 'paid' || order.status === 'processing') {
+      updateData.printed_at = now;
+    }
   }
 
   // Update order

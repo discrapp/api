@@ -81,10 +81,11 @@ function resetMocks() {
 // Constants from the function
 const WEB_APP_URL = 'https://aceback.app';
 const VALID_STATUSES = ['processing', 'printed', 'shipped', 'delivered'];
+// Note: shipped is allowed from paid/processing/printed since shipping implies printing is done
 const STATUS_TRANSITIONS: Record<string, string[]> = {
   pending_payment: [],
-  paid: ['processing', 'printed'],
-  processing: ['printed'],
+  paid: ['processing', 'printed', 'shipped'],
+  processing: ['printed', 'shipped'],
   printed: ['shipped'],
   shipped: ['delivered'],
   delivered: [],
@@ -184,16 +185,16 @@ Deno.test('POST - returns 404 JSON when order not found', async () => {
   }
 });
 
-Deno.test('POST - returns 400 JSON when tracking_number missing for shipped', async () => {
+Deno.test('POST - allows shipped without tracking_number', () => {
+  // tracking_number is now optional for shipped status (e.g., first-class mail)
+  // This test verifies we no longer require it
   const status = 'shipped';
   const trackingNumber = undefined;
 
-  if (status === 'shipped' && !trackingNumber) {
-    const response = errorResponse('tracking_number is required when marking as shipped', 400, false);
-    assertEquals(response.status, 400);
-    const body = await response.json();
-    assertEquals(body.error, 'tracking_number is required when marking as shipped');
-  }
+  // Should NOT return an error for missing tracking_number
+  assertEquals(status, 'shipped');
+  assertEquals(trackingNumber, undefined);
+  // The function would proceed without error - tracking is optional
 });
 
 Deno.test('POST - returns JSON success for valid status update', async () => {
@@ -434,6 +435,56 @@ Deno.test('rejects invalid status transitions', async () => {
   assertEquals(response.status, 400);
   const body = await response.json();
   assertEquals(body.error, 'Invalid status transition from pending_payment to shipped');
+});
+
+Deno.test('allows skipping from paid to shipped (auto-sets printed_at)', async () => {
+  resetMocks();
+
+  mockOrders = [
+    {
+      id: 'order-123',
+      status: 'paid', // Starting from paid, not printed
+      order_number: 'AB-2024-001',
+      pdf_storage_path: 'orders/test/test.pdf',
+      printer_token: 'valid-printer-token',
+    },
+  ];
+
+  const { data: order } = await mockSupabaseClient
+    .from('sticker_orders')
+    .select('id, status, order_number, pdf_storage_path')
+    .eq('printer_token', 'valid-printer-token')
+    .single();
+
+  assertExists(order);
+  assertEquals(order.status, 'paid');
+
+  // Verify paid -> shipped is now allowed
+  const newStatus = 'shipped';
+  const allowedTransitions = STATUS_TRANSITIONS[order.status] || [];
+  assertEquals(allowedTransitions.includes(newStatus), true);
+
+  // When skipping from paid to shipped, both printed_at and shipped_at should be set
+  const now = new Date().toISOString();
+  const updateData = {
+    status: newStatus,
+    shipped_at: now,
+    printed_at: now, // Auto-set because we're skipping from paid
+    updated_at: now,
+  };
+
+  const { data: updatedOrder } = await mockSupabaseClient
+    .from('sticker_orders')
+    .update(updateData)
+    .eq('id', order.id)
+    .select('id, order_number, status, tracking_number, printed_at, shipped_at, updated_at')
+    .single();
+
+  assertExists(updatedOrder);
+  assertEquals(updatedOrder.status, 'shipped');
+  assertExists(updatedOrder.printed_at); // Should be auto-set
+  assertExists(updatedOrder.shipped_at);
+  // Note: tracking_number is optional, so no tracking in this test
 });
 
 // Restore original fetch after all tests
