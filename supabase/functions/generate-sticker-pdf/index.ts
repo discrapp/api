@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { PDFDocument, rgb, StandardFonts } from 'https://esm.sh/pdf-lib@1.17.1';
 import QRCode from 'https://esm.sh/qrcode@1.5.3';
+import { LOGO_BASE64 } from './logo-data.ts';
 
 /**
  * Generate Sticker PDF Function
@@ -128,6 +129,10 @@ Deno.serve(async (req) => {
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+    // Load and embed logo from base64
+    const logoBytes = Uint8Array.from(atob(LOGO_BASE64.trim()), (c) => c.charCodeAt(0));
+    const logoImage = await pdfDoc.embedPng(logoBytes);
+
     // Calculate page size (Letter: 612 x 792 points)
     const pageWidth = 612;
     const pageHeight = 792;
@@ -171,9 +176,22 @@ Deno.serve(async (req) => {
         // Embed QR code image
         const qrImage = await pdfDoc.embedPng(qrBytes);
 
-        // Calculate QR code position (centered horizontally)
+        // Draw logo at top (scaled to fit width with aspect ratio preserved)
+        const logoHeight = 24; // Target height for logo
+        const logoDims = logoImage.scale(logoHeight / logoImage.height);
+        const logoX = x + (STICKER_WIDTH - logoDims.width) / 2;
+        const logoY = y + STICKER_HEIGHT - MARGIN - logoHeight;
+
+        page.drawImage(logoImage, {
+          x: logoX,
+          y: logoY,
+          width: logoDims.width,
+          height: logoDims.height,
+        });
+
+        // Calculate QR code position (centered, below logo)
         const qrX = x + (STICKER_WIDTH - QR_SIZE) / 2;
-        const qrY = y + STICKER_HEIGHT - MARGIN - QR_SIZE;
+        const qrY = logoY - 8 - QR_SIZE; // 8pt spacing below logo
 
         // Draw QR code
         page.drawImage(qrImage, {
@@ -183,34 +201,19 @@ Deno.serve(async (req) => {
           height: QR_SIZE,
         });
 
-        // Draw "AceBack" text below QR code
-        const textSize = 14;
-        const text = 'AceBack';
-        const textWidth = font.widthOfTextAtSize(text, textSize);
-        const textX = x + (STICKER_WIDTH - textWidth) / 2;
-        const textY = y + MARGIN + 18;
-
-        page.drawText(text, {
-          x: textX,
-          y: textY,
-          size: textSize,
-          font: font,
-          color: rgb(0, 0, 0),
-        });
-
-        // Draw URL below brand name
-        const codeSize = 6;
+        // Draw URL below QR code
+        const codeSize = 7;
         const codeText = `aceback.app/d/${qrCode.short_code}`;
         const codeWidth = font.widthOfTextAtSize(codeText, codeSize);
         const codeX = x + (STICKER_WIDTH - codeWidth) / 2;
-        const codeY = textY - 12;
+        const codeY = qrY - 10; // 10pt below QR code
 
         page.drawText(codeText, {
           x: codeX,
           y: codeY,
           size: codeSize,
           font: font,
-          color: rgb(0.5, 0.5, 0.5),
+          color: rgb(0.4, 0.4, 0.4),
         });
 
         // Draw cut line rectangle
@@ -243,7 +246,7 @@ Deno.serve(async (req) => {
 
     const { error: uploadError } = await supabaseAdmin.storage.from('sticker-pdfs').upload(storagePath, pdfBytes, {
       contentType: 'application/pdf',
-      upsert: false,
+      upsert: true, // Allow overwriting existing PDFs
     });
 
     if (uploadError) {
