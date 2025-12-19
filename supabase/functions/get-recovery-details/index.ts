@@ -157,9 +157,10 @@ Deno.serve(async (req) => {
   let finderDisplayName = 'Unknown';
   let finderAvatarUrl: string | null = null;
   let finderVenmoUsername: string | null = null;
+  let finderStripeConnectStatus: string | null = null;
   const { data: finderProfile } = await supabaseAdmin
     .from('profiles')
-    .select('username, full_name, display_preference, email, avatar_url, venmo_username')
+    .select('username, full_name, display_preference, email, avatar_url, venmo_username, stripe_connect_status')
     .eq('id', recovery.finder_id)
     .single();
 
@@ -173,6 +174,7 @@ Deno.serve(async (req) => {
     }
     finderAvatarUrl = await resolveAvatarUrl(finderProfile.email, finderProfile.avatar_url, supabaseAdmin);
     finderVenmoUsername = finderProfile.venmo_username || null;
+    finderStripeConnectStatus = finderProfile.stripe_connect_status || null;
   }
 
   // Get disc photo
@@ -263,6 +265,8 @@ Deno.serve(async (req) => {
         display_name: finderDisplayName,
         avatar_url: finderAvatarUrl,
         venmo_username: finderVenmoUsername,
+        stripe_connect_status: finderStripeConnectStatus,
+        can_receive_card_payments: finderStripeConnectStatus === 'active',
       },
       meetup_proposals: proposals || [],
       drop_off: dropOffWithSignedUrl || null,

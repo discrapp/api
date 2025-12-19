@@ -10,12 +10,13 @@ import Stripe from 'npm:stripe@14.21.0';
  * POST /stripe-webhook
  *
  * Events handled:
- * - checkout.session.completed: Updates order status to 'paid'
+ * - checkout.session.completed: Updates order status to 'paid' OR marks reward as paid
  * - checkout.session.expired: Updates order status to 'cancelled'
+ * - account.updated: Updates Stripe Connect account status
  */
 
 // Webhook event types we handle
-const HANDLED_EVENTS = ['checkout.session.completed', 'checkout.session.expired'];
+const HANDLED_EVENTS = ['checkout.session.completed', 'checkout.session.expired', 'account.updated'];
 
 Deno.serve(async (req) => {
   // Only allow POST requests
@@ -94,7 +95,43 @@ Deno.serve(async (req) => {
       const session = event.data.object as Stripe.Checkout.Session;
       console.log(`Checkout session completed: ${session.id}`);
 
-      // Get order ID from metadata
+      // Check if this is a reward payment or sticker order
+      const paymentType = session.metadata?.type;
+
+      if (paymentType === 'reward_payment') {
+        // Handle reward payment
+        const recoveryEventId = session.metadata?.recovery_event_id;
+        if (!recoveryEventId) {
+          console.error('No recovery_event_id in session metadata for reward payment');
+          return new Response(JSON.stringify({ error: 'Missing recovery_event_id in metadata' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Mark reward as paid
+        const now = new Date().toISOString();
+        const { error: updateError } = await supabaseAdmin
+          .from('recovery_events')
+          .update({
+            reward_paid_at: now,
+            updated_at: now,
+          })
+          .eq('id', recoveryEventId);
+
+        if (updateError) {
+          console.error('Failed to mark reward as paid:', updateError);
+          return new Response(JSON.stringify({ error: 'Failed to mark reward as paid' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Reward marked as paid for recovery ${recoveryEventId}`);
+        break;
+      }
+
+      // Handle sticker order payment
       const orderId = session.metadata?.order_id;
       if (!orderId) {
         console.error('No order_id in session metadata');
@@ -235,6 +272,36 @@ Deno.serve(async (req) => {
 
       if (updateError) {
         console.error('Failed to cancel order:', updateError);
+      }
+
+      break;
+    }
+
+    case 'account.updated': {
+      // Handle Stripe Connect account status updates
+      const account = event.data.object as Stripe.Account;
+      console.log(`Connect account updated: ${account.id}`);
+
+      // Determine the status based on account properties
+      let status: 'pending' | 'active' | 'restricted' = 'pending';
+
+      if (account.details_submitted && account.payouts_enabled) {
+        status = 'active';
+      } else if (account.requirements?.currently_due?.length || account.requirements?.errors?.length) {
+        status = 'restricted';
+      }
+
+      // Update the profile with the new status
+      const { error: updateError } = await supabaseAdmin
+        .from('profiles')
+        .update({ stripe_connect_status: status })
+        .eq('stripe_connect_account_id', account.id);
+
+      if (updateError) {
+        console.error('Failed to update Connect status:', updateError);
+        // Don't return error - this is informational
+      } else {
+        console.log(`Connect account ${account.id} status updated to ${status}`);
       }
 
       break;
