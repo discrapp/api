@@ -1,0 +1,68 @@
+---
+# Scheduled job to sync disc catalog from DiscIt API
+# Runs weekly to pick up new disc releases and updated flight numbers
+
+name: Sync Disc Catalog
+
+on:
+  schedule:
+    # Run every Sunday at midnight UTC
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync Disc Catalog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync disc catalog from DiscIt API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "Starting disc catalog sync..."
+
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            "$SUPABASE_URL/functions/v1/sync-disc-catalog")
+
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Response (HTTP $http_code):"
+          echo "$body" | jq . || echo "$body"
+
+          if [ "$http_code" -ne 200 ]; then
+            echo "::error::Sync failed with HTTP $http_code"
+            exit 1
+          fi
+
+          # Extract stats from response
+          success=$(echo "$body" | jq -r '.success // false')
+          added=$(echo "$body" | jq -r '.discs_added // 0')
+          updated=$(echo "$body" | jq -r '.discs_updated // 0')
+          total=$(echo "$body" | jq -r '.total_processed // 0')
+          duration=$(echo "$body" | jq -r '.duration_ms // 0')
+
+          if [ "$success" = "true" ]; then
+            echo "✅ Sync completed successfully!"
+            echo "   - Discs added: $added"
+            echo "   - Discs updated: $updated"
+            echo "   - Total processed: $total"
+            echo "   - Duration: ${duration}ms"
+          else
+            echo "::error::Sync returned success=false"
+            exit 1
+          fi
+
+      - name: Report sync failure
+        if: failure()
+        run: |
+          echo "::error::Disc catalog sync failed. Check logs for details."
+          # TODO: Add Slack notification for failures
