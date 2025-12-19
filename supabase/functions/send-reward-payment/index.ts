@@ -136,13 +136,10 @@ Deno.serve(async (req) => {
 
   // Check if recovery is in 'recovered' status
   if (recovery.status !== 'recovered') {
-    return new Response(
-      JSON.stringify({ error: 'Reward can only be sent after disc is recovered' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Reward can only be sent after disc is recovered' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Check if already paid

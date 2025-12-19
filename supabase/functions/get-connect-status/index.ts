@@ -128,10 +128,7 @@ Deno.serve(async (req) => {
 
     // Update cached status if changed
     if (profile.stripe_connect_status !== status) {
-      await supabaseAdmin
-        .from('profiles')
-        .update({ stripe_connect_status: status })
-        .eq('id', user.id);
+      await supabaseAdmin.from('profiles').update({ stripe_connect_status: status }).eq('id', user.id);
     }
 
     return new Response(
