@@ -1,5 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
 
 /**
  * Claim Disc Function
@@ -18,7 +20,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  * - Closes any abandoned recovery events for this disc
  */
 
-Deno.serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
@@ -76,6 +78,9 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Set Sentry user context
+  setUser(user.id);
+
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   // Get the disc
@@ -111,6 +116,7 @@ Deno.serve(async (req) => {
 
   if (updateError) {
     console.error('Failed to claim disc:', updateError);
+    captureException(updateError, { operation: 'claim-disc', discId: disc_id, userId: user.id });
     return new Response(JSON.stringify({ error: 'Failed to claim disc', details: updateError.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -130,6 +136,7 @@ Deno.serve(async (req) => {
 
   if (closeRecoveryError) {
     console.error('Failed to close recovery events:', closeRecoveryError);
+    captureException(closeRecoveryError, { operation: 'close-recovery-events', discId: disc_id });
     // Don't fail - the disc was claimed successfully
   }
 
@@ -151,4 +158,6 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     }
   );
-});
+};
+
+Deno.serve(withSentry(handler));

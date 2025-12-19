@@ -1,5 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withSentry } from '../_shared/with-sentry.ts';
+import { captureException } from '../_shared/sentry.ts';
 
 /**
  * Send Push Notification Function
@@ -28,7 +30,7 @@ interface PushMessage {
   channelId?: string;
 }
 
-Deno.serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -86,6 +88,7 @@ Deno.serve(async (req) => {
 
   if (profileError) {
     console.error('Failed to get user profile:', profileError);
+    captureException(profileError, { operation: 'get-push-token', userId: user_id });
     return new Response(JSON.stringify({ error: 'Failed to get user profile', details: profileError.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -132,6 +135,7 @@ Deno.serve(async (req) => {
 
     if (!response.ok) {
       console.error('Expo push API error:', result);
+      captureException(new Error('Expo push API error'), { operation: 'expo-push-api', userId: user_id, result });
       return new Response(
         JSON.stringify({
           error: 'Failed to send push notification',
@@ -178,6 +182,7 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error('Failed to send push notification:', error);
+    captureException(error, { operation: 'send-push-notification', userId: user_id });
     return new Response(
       JSON.stringify({
         error: 'Failed to send push notification',
@@ -189,4 +194,6 @@ Deno.serve(async (req) => {
       }
     );
   }
-});
+};
+
+Deno.serve(withSentry(handler));

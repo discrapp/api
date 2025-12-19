@@ -2,6 +2,8 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
 import { fetchDisplayName } from '../_shared/display-name.ts';
+import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
 
 /**
  * Report Found Disc Function
@@ -18,7 +20,7 @@ import { fetchDisplayName } from '../_shared/display-name.ts';
  * - Finder cannot report their own disc
  */
 
-Deno.serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -77,6 +79,9 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Set Sentry user context
+  setUser(user.id);
 
   // Use service role for database operations (to bypass RLS for lookups)
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -163,6 +168,7 @@ Deno.serve(async (req) => {
 
   if (createError) {
     console.error('Failed to create recovery event:', createError);
+    captureException(createError, { operation: 'create-recovery-event', discId: disc.id, finderId: user.id });
     return new Response(JSON.stringify({ error: 'Failed to create recovery event', details: createError.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -191,6 +197,7 @@ Deno.serve(async (req) => {
     });
   } catch (notificationError) {
     console.error('Failed to create notification:', notificationError);
+    captureException(notificationError, { operation: 'create-notification', recoveryEventId: recoveryEvent.id });
     // Don't fail the request, the recovery was created successfully
   }
 
@@ -222,4 +229,6 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     }
   );
-});
+};
+
+Deno.serve(withSentry(handler));
