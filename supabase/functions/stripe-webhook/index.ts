@@ -1,6 +1,8 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@14.21.0';
+import { withSentry } from '../_shared/with-sentry.ts';
+import { captureException } from '../_shared/sentry.ts';
 
 /**
  * Stripe Webhook Handler
@@ -18,7 +20,7 @@ import Stripe from 'npm:stripe@14.21.0';
 // Webhook event types we handle
 const HANDLED_EVENTS = ['checkout.session.completed', 'checkout.session.expired', 'account.updated'];
 
-Deno.serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -141,6 +143,7 @@ Deno.serve(async (req) => {
 
         if (updateError) {
           console.error('Failed to mark reward as paid:', updateError);
+          captureException(updateError, { operation: 'mark-reward-paid', recoveryEventId });
           return new Response(JSON.stringify({ error: 'Failed to mark reward as paid' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -176,6 +179,7 @@ Deno.serve(async (req) => {
 
       if (updateError) {
         console.error('Failed to update order:', updateError);
+        captureException(updateError, { operation: 'update-order-paid', orderId, sessionId: session.id });
         return new Response(JSON.stringify({ error: 'Failed to update order' }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
@@ -292,6 +296,7 @@ Deno.serve(async (req) => {
 
       if (updateError) {
         console.error('Failed to cancel order:', updateError);
+        captureException(updateError, { operation: 'cancel-order', orderId, sessionId: session.id });
       }
 
       break;
@@ -319,6 +324,7 @@ Deno.serve(async (req) => {
 
       if (updateError) {
         console.error('Failed to update Connect status:', updateError);
+        captureException(updateError, { operation: 'update-connect-status', accountId: account.id, status });
         // Don't return error - this is informational
       } else {
         console.log(`Connect account ${account.id} status updated to ${status}`);
@@ -332,4 +338,6 @@ Deno.serve(async (req) => {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
-});
+};
+
+Deno.serve(withSentry(handler));

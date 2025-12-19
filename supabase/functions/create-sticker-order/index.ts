@@ -1,6 +1,8 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@14.21.0';
+import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
 
 /**
  * Create Sticker Order Function
@@ -43,7 +45,7 @@ interface ShippingAddress {
 
 const REQUIRED_ADDRESS_FIELDS = ['name', 'street_address', 'city', 'state', 'postal_code'];
 
-Deno.serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -131,6 +133,9 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Set Sentry user context
+  setUser(user.id);
+
   // Use service role for database operations
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
@@ -160,6 +165,7 @@ Deno.serve(async (req) => {
 
     if (addressError) {
       console.error('Failed to create shipping address:', addressError);
+      captureException(addressError, { operation: 'create-shipping-address', userId: user.id });
       return new Response(JSON.stringify({ error: 'Failed to create shipping address' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
@@ -205,6 +211,7 @@ Deno.serve(async (req) => {
 
   if (orderError) {
     console.error('Failed to create order:', orderError);
+    captureException(orderError, { operation: 'create-order', userId: user.id, quantity });
     return new Response(JSON.stringify({ error: 'Failed to create order' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -382,6 +389,7 @@ Deno.serve(async (req) => {
     );
   } catch (stripeError) {
     console.error('Stripe error:', stripeError);
+    captureException(stripeError, { operation: 'create-checkout-session', orderId: order.id });
     // Delete the order since checkout failed
     await supabaseAdmin.from('sticker_orders').delete().eq('id', order.id);
     return new Response(JSON.stringify({ error: 'Failed to create checkout session' }), {
@@ -389,4 +397,6 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
-});
+};
+
+Deno.serve(withSentry(handler));
