@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { compressImageFile } from '../_shared/image-compression.ts';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -85,8 +86,32 @@ Deno.serve(async (req) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-  // Determine file extension
-  const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
+  // Compress and optimize image (profile photos use smaller dimensions)
+  let uploadData: Uint8Array | File = file;
+  let contentType = file.type;
+  let extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
+
+  try {
+    const compressionResult = await compressImageFile(file, {
+      maxDimension: 800, // Profile photos don't need to be large
+      quality: 85,
+      minSizeToCompress: 200 * 1024, // 200KB - lower threshold for profile photos
+      stripMetadata: true,
+    });
+
+    if (compressionResult.wasCompressed) {
+      uploadData = compressionResult.data;
+      contentType = compressionResult.mimeType;
+      extension = 'jpg'; // Always JPEG after compression
+      console.log(
+        `Compressed profile photo: ${compressionResult.originalSize} -> ${compressionResult.finalSize} bytes ` +
+          `(${Math.round((1 - compressionResult.finalSize / compressionResult.originalSize) * 100)}% reduction)`
+      );
+    }
+  } catch (compressionError) {
+    // Log but continue with original file if compression fails
+    console.error('Image compression failed, using original:', compressionError);
+  }
 
   // Storage path: {user_id}.{extension}
   const storagePath = `${user.id}.${extension}`;
@@ -99,8 +124,8 @@ Deno.serve(async (req) => {
   }
 
   // Upload file to storage (upsert to replace if exists)
-  const { error: uploadError } = await supabaseAdmin.storage.from('profile-photos').upload(storagePath, file, {
-    contentType: file.type,
+  const { error: uploadError } = await supabaseAdmin.storage.from('profile-photos').upload(storagePath, uploadData, {
+    contentType,
     upsert: true,
   });
 

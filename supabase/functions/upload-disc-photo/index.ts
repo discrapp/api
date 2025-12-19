@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { compressImageFile } from '../_shared/image-compression.ts';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -140,15 +141,39 @@ Deno.serve(async (req) => {
   // Generate unique photo ID
   const photoId = crypto.randomUUID();
 
-  // Determine file extension
-  const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
+  // Compress and optimize image
+  let uploadData: Uint8Array | File = file;
+  let contentType = file.type;
+  let extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
+
+  try {
+    const compressionResult = await compressImageFile(file, {
+      maxDimension: 1920,
+      quality: 85,
+      minSizeToCompress: 500 * 1024, // 500KB
+      stripMetadata: true,
+    });
+
+    if (compressionResult.wasCompressed) {
+      uploadData = compressionResult.data;
+      contentType = compressionResult.mimeType;
+      extension = 'jpg'; // Always JPEG after compression
+      console.log(
+        `Compressed image: ${compressionResult.originalSize} -> ${compressionResult.finalSize} bytes ` +
+          `(${Math.round((1 - compressionResult.finalSize / compressionResult.originalSize) * 100)}% reduction)`
+      );
+    }
+  } catch (compressionError) {
+    // Log but continue with original file if compression fails
+    console.error('Image compression failed, using original:', compressionError);
+  }
 
   // Upload file to storage
   // Path: {disc_id}/{uuid}.{extension}
   const storagePath = `${discId}/${photoId}.${extension}`;
 
-  const { error: uploadError } = await supabaseAdmin.storage.from('disc-photos').upload(storagePath, file, {
-    contentType: file.type,
+  const { error: uploadError } = await supabaseAdmin.storage.from('disc-photos').upload(storagePath, uploadData, {
+    contentType,
     upsert: true, // Replace if exists
   });
 
