@@ -128,13 +128,10 @@ Deno.test('send-reward-payment: should return 400 when recovery_event_id missing
   const body: { recovery_event_id?: string } = {};
 
   if (!body.recovery_event_id) {
-    const response = new Response(
-      JSON.stringify({ error: 'Missing required field: recovery_event_id' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Missing required field: recovery_event_id' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Missing required field: recovery_event_id');
@@ -162,21 +159,14 @@ Deno.test('send-reward-payment: should return 403 when user is not owner', async
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'recovery-123')
-    .single();
+  const { data } = await supabase.from('recovery_events').select('*').eq('id', 'recovery-123').single();
 
   const recovery = data as MockRecoveryEvent | null;
   if (recovery?.disc && recovery.disc.owner_id !== currentUserId) {
-    const response = new Response(
-      JSON.stringify({ error: 'Only the disc owner can send the reward' }),
-      {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Only the disc owner can send the reward' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 403);
   }
 });
@@ -200,21 +190,14 @@ Deno.test('send-reward-payment: should return 400 when recovery not in recovered
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'recovery-123')
-    .single();
+  const { data } = await supabase.from('recovery_events').select('*').eq('id', 'recovery-123').single();
 
   const recovery = data as MockRecoveryEvent | null;
   if (recovery && recovery.status !== 'recovered') {
-    const response = new Response(
-      JSON.stringify({ error: 'Reward can only be sent after disc is recovered' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Reward can only be sent after disc is recovered' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
   }
 });
@@ -238,11 +221,7 @@ Deno.test('send-reward-payment: should return 400 when already paid', async () =
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'recovery-123')
-    .single();
+  const { data } = await supabase.from('recovery_events').select('*').eq('id', 'recovery-123').single();
 
   const recovery = data as MockRecoveryEvent | null;
   if (recovery?.reward_paid_at) {

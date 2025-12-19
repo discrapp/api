@@ -119,7 +119,7 @@ Deno.test('get-connect-status: should return none status when user has no Connec
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: profile } = await supabase
+  const { data: _profile } = await supabase
     .from('profiles')
     .select('stripe_connect_account_id, stripe_connect_status')
     .eq('id', user.id)
@@ -161,7 +161,7 @@ Deno.test('get-connect-status: should return pending status for incomplete onboa
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: profile } = await supabase
+  const { data: _profile } = await supabase
     .from('profiles')
     .select('stripe_connect_account_id, stripe_connect_status')
     .eq('id', user.id)
@@ -202,7 +202,7 @@ Deno.test('get-connect-status: should return active status for completed onboard
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: profile } = await supabase
+  const { data: _profile } = await supabase
     .from('profiles')
     .select('stripe_connect_account_id, stripe_connect_status')
     .eq('id', user.id)

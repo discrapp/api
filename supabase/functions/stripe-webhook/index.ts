@@ -36,10 +36,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Get webhook secret
+  // Get webhook secrets (main account and Connect accounts use different secrets)
   const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
-  if (!webhookSecret) {
-    console.error('STRIPE_WEBHOOK_SECRET not configured');
+  const connectWebhookSecret = Deno.env.get('STRIPE_CONNECT_WEBHOOK_SECRET');
+
+  if (!webhookSecret && !connectWebhookSecret) {
+    console.error('No webhook secrets configured');
     return new Response(JSON.stringify({ error: 'Webhook not configured' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -63,12 +65,30 @@ Deno.serve(async (req) => {
   // Get raw body for signature verification
   const body = await req.text();
 
-  // Verify webhook signature
-  let event: Stripe.Event;
-  try {
-    event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err);
+  // Verify webhook signature - try both secrets since we have separate webhooks
+  // for main account events and Connected account events
+  let event: Stripe.Event | null = null;
+
+  // Try main webhook secret first
+  if (webhookSecret) {
+    try {
+      event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
+    } catch {
+      // Will try Connect secret next
+    }
+  }
+
+  // Try Connect webhook secret if main secret didn't work
+  if (!event && connectWebhookSecret) {
+    try {
+      event = await stripe.webhooks.constructEventAsync(body, signature, connectWebhookSecret);
+    } catch {
+      // Both secrets failed
+    }
+  }
+
+  if (!event) {
+    console.error('Webhook signature verification failed with all available secrets');
     return new Response(JSON.stringify({ error: 'Invalid signature' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },

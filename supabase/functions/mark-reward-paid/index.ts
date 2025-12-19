@@ -104,24 +104,18 @@ Deno.serve(async (req) => {
 
   // Check if user is the finder
   if (recovery.finder_id !== user.id) {
-    return new Response(
-      JSON.stringify({ error: 'Only the finder can mark the reward as received' }),
-      {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Only the finder can mark the reward as received' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Check if recovery is in 'recovered' status
   if (recovery.status !== 'recovered') {
-    return new Response(
-      JSON.stringify({ error: 'Reward can only be marked as paid after disc is recovered' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Reward can only be marked as paid after disc is recovered' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Check if already marked as paid
@@ -165,13 +159,10 @@ Deno.serve(async (req) => {
 
   if (updateError) {
     console.error('Failed to mark reward as paid:', updateError);
-    return new Response(
-      JSON.stringify({ error: 'Failed to mark reward as received', details: updateError.message }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Failed to mark reward as received', details: updateError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   return new Response(

@@ -120,13 +120,10 @@ Deno.test('mark-reward-paid: should return 400 when recovery_event_id is missing
   const body: { recovery_event_id?: string } = {};
 
   if (!body.recovery_event_id) {
-    const response = new Response(
-      JSON.stringify({ error: 'Missing required field: recovery_event_id' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Missing required field: recovery_event_id' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'Missing required field: recovery_event_id');
@@ -140,11 +137,7 @@ Deno.test('mark-reward-paid: should return 404 when recovery event not found', a
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: recovery } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'non-existent-id')
-    .single();
+  const { data: recovery } = await supabase.from('recovery_events').select('*').eq('id', 'non-existent-id').single();
 
   if (!recovery) {
     const response = new Response(JSON.stringify({ error: 'Recovery event not found' }), {
@@ -177,20 +170,13 @@ Deno.test('mark-reward-paid: should return 403 when user is not finder', async (
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: recovery } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'recovery-123')
-    .single();
+  const { data: recovery } = await supabase.from('recovery_events').select('*').eq('id', 'recovery-123').single();
 
   if (recovery && recovery.finder_id !== currentUserId) {
-    const response = new Response(
-      JSON.stringify({ error: 'Only the finder can mark the reward as received' }),
-      {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Only the finder can mark the reward as received' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 403);
     const data = await response.json();
     assertEquals(data.error, 'Only the finder can mark the reward as received');
@@ -215,11 +201,7 @@ Deno.test('mark-reward-paid: should return 400 when recovery is not in recovered
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: recovery } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'recovery-123')
-    .single();
+  const { data: recovery } = await supabase.from('recovery_events').select('*').eq('id', 'recovery-123').single();
 
   if (recovery && recovery.status !== 'recovered') {
     const response = new Response(
@@ -253,20 +235,13 @@ Deno.test('mark-reward-paid: should return 400 when disc has no reward', async (
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: recovery } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'recovery-123')
-    .single();
+  const { data: recovery } = await supabase.from('recovery_events').select('*').eq('id', 'recovery-123').single();
 
   if (recovery?.disc && (recovery.disc.reward_amount === null || recovery.disc.reward_amount <= 0)) {
-    const response = new Response(
-      JSON.stringify({ error: 'This disc does not have a reward set' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'This disc does not have a reward set' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const data = await response.json();
     assertEquals(data.error, 'This disc does not have a reward set');
@@ -292,11 +267,7 @@ Deno.test('mark-reward-paid: should return success when already marked as paid',
   authHeaderPresent = true;
 
   const supabase = mockSupabaseClient();
-  const { data: recovery } = await supabase
-    .from('recovery_events')
-    .select('*')
-    .eq('id', 'recovery-123')
-    .single();
+  const { data: recovery } = await supabase.from('recovery_events').select('*').eq('id', 'recovery-123').single();
 
   if (recovery?.reward_paid_at) {
     const response = new Response(
@@ -339,10 +310,7 @@ Deno.test('mark-reward-paid: finder can successfully mark reward as received', a
 
   // Simulate marking as paid
   const now = new Date().toISOString();
-  await supabase
-    .from('recovery_events')
-    .update({ reward_paid_at: now, updated_at: now })
-    .eq('id', 'recovery-123');
+  await supabase.from('recovery_events').update({ reward_paid_at: now, updated_at: now }).eq('id', 'recovery-123');
 
   // Verify it was updated
   const recovery = mockRecoveryEvents.find((r) => r.id === 'recovery-123');
