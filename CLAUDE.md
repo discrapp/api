@@ -418,6 +418,49 @@ are framework configuration (not business logic), we exclude them from coverage.
 - Validate all inputs
 - Use environment variables for configuration
 
+### Sentry Error Tracking - MANDATORY
+
+**CRITICAL:** All edge functions MUST use Sentry for error tracking.
+
+**Required pattern for new edge functions:**
+
+```typescript
+import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
+
+const handler = async (req: Request): Promise<Response> => {
+  // ... validation code ...
+
+  // After successful authentication:
+  setUser(user.id);
+
+  try {
+    // ... main logic ...
+  } catch (error) {
+    // Capture errors with context
+    captureException(error, {
+      operation: 'operation-name',
+      relevantId: someId,
+    });
+    return new Response(JSON.stringify({ error: 'Error message' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
+
+// ALWAYS wrap with withSentry
+Deno.serve(withSentry(handler));
+```
+
+**Key points:**
+
+- Always wrap handlers with `withSentry()` - catches unhandled errors
+- Call `setUser(user.id)` after authentication succeeds
+- Use `captureException(error, context)` in catch blocks
+- Include relevant context (operation name, IDs) for debugging
+- Tests should mock Sentry (it's disabled when SENTRY_DSN is not set)
+
 ### Security
 
 - NEVER commit `.env` file
