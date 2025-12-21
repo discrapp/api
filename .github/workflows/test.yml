@@ -1,0 +1,288 @@
+---
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    name: Run Tests with Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run tests with coverage
+        run: |
+          deno test --coverage=coverage supabase/functions/
+          deno coverage coverage --lcov > coverage/lcov.info
+
+      - name: Parse lcov to JSON summary
+        id: parse-coverage
+        run: |
+          # Parse lcov.info to extract coverage percentages
+          if [ -f coverage/lcov.info ]; then
+            # Extract line coverage
+            LINES_FOUND=$(grep -E "^LF:" coverage/lcov.info | awk -F: '{sum += $2} END {print sum}')
+            LINES_HIT=$(grep -E "^LH:" coverage/lcov.info | awk -F: '{sum += $2} END {print sum}')
+
+            # Extract function coverage
+            FUNCS_FOUND=$(grep -E "^FNF:" coverage/lcov.info | awk -F: '{sum += $2} END {print sum}')
+            FUNCS_HIT=$(grep -E "^FNH:" coverage/lcov.info | awk -F: '{sum += $2} END {print sum}')
+
+            # Extract branch coverage
+            BRANCHES_FOUND=$(grep -E "^BRF:" coverage/lcov.info | awk -F: '{sum += $2} END {print sum}')
+            BRANCHES_HIT=$(grep -E "^BRH:" coverage/lcov.info | awk -F: '{sum += $2} END {print sum}')
+
+            # Calculate percentages (handle division by zero)
+            if [ "$LINES_FOUND" -gt 0 ]; then
+              LINE_PCT=$(awk "BEGIN {printf \"%.2f\", ($LINES_HIT / $LINES_FOUND) * 100}")
+            else
+              LINE_PCT="0.00"
+            fi
+
+            if [ "$FUNCS_FOUND" -gt 0 ]; then
+              FUNC_PCT=$(awk "BEGIN {printf \"%.2f\", ($FUNCS_HIT / $FUNCS_FOUND) * 100}")
+            else
+              FUNC_PCT="0.00"
+            fi
+
+            if [ "$BRANCHES_FOUND" -gt 0 ]; then
+              BRANCH_PCT=$(awk "BEGIN {printf \"%.2f\", ($BRANCHES_HIT / $BRANCHES_FOUND) * 100}")
+            else
+              BRANCH_PCT="0.00"
+            fi
+
+            # For Deno, statements = lines (lcov doesn't have separate statement tracking)
+            STMT_PCT="$LINE_PCT"
+
+            # Create JSON summary for consistency with Jest format
+            mkdir -p coverage
+            cat > coverage/coverage-summary.json << EOF
+{
+  "total": {
+    "statements": {"pct": $STMT_PCT},
+    "branches": {"pct": $BRANCH_PCT},
+    "functions": {"pct": $FUNC_PCT},
+    "lines": {"pct": $LINE_PCT}
+  }
+}
+EOF
+          else
+            echo "No coverage data found"
+            exit 1
+          fi
+
+      - name: Upload PR coverage artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pr-${{ github.sha }}
+          path: coverage/coverage-summary.json
+          retention-days: 5
+
+      - name: Cache main branch coverage
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: coverage/coverage-summary.json
+          key: coverage-main-${{ github.sha }}
+
+      - name: Update latest main coverage cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: coverage/coverage-summary.json
+          key: coverage-main-latest
+
+  coverage-report:
+    name: Heimdallr Coverage Report
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Download PR coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-pr-${{ github.sha }}
+          path: pr-coverage
+
+      - name: Get PR coverage values
+        id: pr-coverage
+        run: |
+          STATEMENTS=$(jq '.total.statements.pct' pr-coverage/coverage-summary.json)
+          BRANCHES=$(jq '.total.branches.pct' pr-coverage/coverage-summary.json)
+          FUNCTIONS=$(jq '.total.functions.pct' pr-coverage/coverage-summary.json)
+          LINES=$(jq '.total.lines.pct' pr-coverage/coverage-summary.json)
+          echo "statements=$STATEMENTS" >> $GITHUB_OUTPUT
+          echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
+          echo "functions=$FUNCTIONS" >> $GITHUB_OUTPUT
+          echo "lines=$LINES" >> $GITHUB_OUTPUT
+
+      - name: Restore main branch coverage from cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: base-coverage/coverage-summary.json
+          key: coverage-main-latest
+
+      - name: Get base coverage values
+        id: base-coverage
+        run: |
+          if [ -f base-coverage/coverage-summary.json ]; then
+            STATEMENTS=$(jq '.total.statements.pct' base-coverage/coverage-summary.json)
+            BRANCHES=$(jq '.total.branches.pct' base-coverage/coverage-summary.json)
+            FUNCTIONS=$(jq '.total.functions.pct' base-coverage/coverage-summary.json)
+            LINES=$(jq '.total.lines.pct' base-coverage/coverage-summary.json)
+          else
+            echo "No cached coverage found for main branch, using 0"
+            STATEMENTS=0
+            BRANCHES=0
+            FUNCTIONS=0
+            LINES=0
+          fi
+          echo "statements=$STATEMENTS" >> $GITHUB_OUTPUT
+          echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
+          echo "functions=$FUNCTIONS" >> $GITHUB_OUTPUT
+          echo "lines=$LINES" >> $GITHUB_OUTPUT
+
+      - name: Calculate coverage diff and check thresholds
+        id: diff
+        run: |
+          PR_STMT=${{ steps.pr-coverage.outputs.statements }}
+          BASE_STMT=${{ steps.base-coverage.outputs.statements }}
+
+          STMT_DIFF=$(echo "$PR_STMT - $BASE_STMT" | bc)
+          echo "stmt_diff=$STMT_DIFF" >> $GITHUB_OUTPUT
+
+          # Check if coverage decreased (using bc for float comparison)
+          DECREASED=$(echo "$STMT_DIFF < 0" | bc -l)
+          if [ "$DECREASED" = "1" ]; then
+            echo "coverage_decreased=true" >> $GITHUB_OUTPUT
+          else
+            echo "coverage_decreased=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Check if below minimum threshold (50%)
+          BELOW_MIN=$(echo "$PR_STMT < 50" | bc -l)
+          if [ "$BELOW_MIN" = "1" ]; then
+            echo "below_minimum=true" >> $GITHUB_OUTPUT
+          else
+            echo "below_minimum=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post coverage comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.HEIMDALLR_TOKEN }}
+          script: |
+            const prStmt = ${{ steps.pr-coverage.outputs.statements }};
+            const prBranch = ${{ steps.pr-coverage.outputs.branches }};
+            const prFunc = ${{ steps.pr-coverage.outputs.functions }};
+            const prLines = ${{ steps.pr-coverage.outputs.lines }};
+
+            const baseStmt = ${{ steps.base-coverage.outputs.statements }};
+            const baseBranch = ${{ steps.base-coverage.outputs.branches }};
+            const baseFunc = ${{ steps.base-coverage.outputs.functions }};
+            const baseLines = ${{ steps.base-coverage.outputs.lines }};
+
+            const stmtDiff = (prStmt - baseStmt).toFixed(2);
+            const branchDiff = (prBranch - baseBranch).toFixed(2);
+            const funcDiff = (prFunc - baseFunc).toFixed(2);
+            const linesDiff = (prLines - baseLines).toFixed(2);
+
+            const belowMinimum = '${{ steps.diff.outputs.below_minimum }}' === 'true';
+            const coverageDecreased = '${{ steps.diff.outputs.coverage_decreased }}' === 'true';
+            const hasCachedBase = ${{ steps.base-coverage.outputs.statements }} > 0;
+
+            const formatDiff = (diff) => {
+              const num = parseFloat(diff);
+              if (num > 0) return `+${diff}% 📈`;
+              if (num < 0) return `${diff}% 📉`;
+              return `${diff}%`;
+            };
+
+            const getStatus = () => {
+              if (belowMinimum) return '❌ **FAILED**: Coverage below 50% minimum threshold';
+              if (coverageDecreased) return '❌ **FAILED**: Coverage decreased from base branch';
+              return '✅ **PASSED**: Coverage maintained or improved';
+            };
+
+            const baseNote = hasCachedBase ? '' : '\n\n> ⚠️ No cached coverage for main branch. Comparison will be available after merging.';
+
+            const body = [
+              '## 🔱 Heimdallr Coverage Report',
+              '',
+              '| Metric | Base (main) | PR | Diff |',
+              '|--------|-------------|-----|------|',
+              `| Statements | ${baseStmt}% | ${prStmt}% | ${formatDiff(stmtDiff)} |`,
+              `| Branches | ${baseBranch}% | ${prBranch}% | ${formatDiff(branchDiff)} |`,
+              `| Functions | ${baseFunc}% | ${prFunc}% | ${formatDiff(funcDiff)} |`,
+              `| Lines | ${baseLines}% | ${prLines}% | ${formatDiff(linesDiff)} |`,
+              '',
+              '### Status',
+              getStatus() + baseNote,
+              '',
+              '### Thresholds',
+              '- Minimum coverage: **50%**',
+              '- Coverage must not decrease from base branch',
+              '',
+              '---',
+              '*🔱 Heimdallr watches over your code coverage*',
+              '<!-- heimdallr-coverage-report -->'
+            ].join('\n');
+
+            // Find existing comment from Heimdallr
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.body && c.body.includes('<!-- heimdallr-coverage-report -->')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+      - name: Fail if coverage thresholds not met
+        run: |
+          if [ "${{ steps.diff.outputs.below_minimum }}" = "true" ]; then
+            echo "❌ Coverage is below 50% minimum threshold"
+            exit 1
+          fi
+
+          if [ "${{ steps.diff.outputs.coverage_decreased }}" = "true" ]; then
+            echo "❌ Coverage decreased from base branch"
+            exit 1
+          fi
+
+          echo "✅ Coverage checks passed"
