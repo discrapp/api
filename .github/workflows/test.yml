@@ -72,16 +72,7 @@ jobs:
 
             # Create JSON summary for consistency with Jest format
             mkdir -p coverage
-            cat > coverage/coverage-summary.json << EOF
-{
-  "total": {
-    "statements": {"pct": $STMT_PCT},
-    "branches": {"pct": $BRANCH_PCT},
-    "functions": {"pct": $FUNC_PCT},
-    "lines": {"pct": $LINE_PCT}
-  }
-}
-EOF
+            echo "{\"total\":{\"statements\":{\"pct\":$STMT_PCT},\"branches\":{\"pct\":$BRANCH_PCT},\"functions\":{\"pct\":$FUNC_PCT},\"lines\":{\"pct\":$LINE_PCT}}}" > coverage/coverage-summary.json
           else
             echo "No coverage data found"
             exit 1
