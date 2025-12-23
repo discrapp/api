@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,7 +28,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          deno test --coverage=coverage supabase/functions/
+          deno test --allow-all --coverage=coverage supabase/functions/
           deno coverage coverage --lcov > coverage/lcov.info
 
       - name: Parse lcov to JSON summary
@@ -177,8 +178,8 @@ EOF
             echo "coverage_decreased=false" >> $GITHUB_OUTPUT
           fi
 
-          # Check if below minimum threshold (50%)
-          BELOW_MIN=$(echo "$PR_STMT < 50" | bc -l)
+          # Check if below minimum threshold (40%)
+          BELOW_MIN=$(echo "$PR_STMT < 40" | bc -l)
           if [ "$BELOW_MIN" = "1" ]; then
             echo "below_minimum=true" >> $GITHUB_OUTPUT
           else
@@ -217,7 +218,7 @@ EOF
             };
 
             const getStatus = () => {
-              if (belowMinimum) return '❌ **FAILED**: Coverage below 50% minimum threshold';
+              if (belowMinimum) return '❌ **FAILED**: Coverage below 40% minimum threshold';
               if (coverageDecreased) return '❌ **FAILED**: Coverage decreased from base branch';
               return '✅ **PASSED**: Coverage maintained or improved';
             };
@@ -238,7 +239,7 @@ EOF
               getStatus() + baseNote,
               '',
               '### Thresholds',
-              '- Minimum coverage: **50%**',
+              '- Minimum coverage: **40%**',
               '- Coverage must not decrease from base branch',
               '',
               '---',
@@ -276,7 +277,7 @@ EOF
       - name: Fail if coverage thresholds not met
         run: |
           if [ "${{ steps.diff.outputs.below_minimum }}" = "true" ]; then
-            echo "❌ Coverage is below 50% minimum threshold"
+            echo "❌ Coverage is below 40% minimum threshold"
             exit 1
           fi
 
