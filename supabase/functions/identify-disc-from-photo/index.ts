@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
 
@@ -168,9 +169,10 @@ const handler = async (req: Request): Promise<Response> => {
   const startTime = Date.now();
 
   try {
-    // Convert file to base64
+    // Convert file to base64 using Deno's standard encoding
+    // Note: btoa with spread operator fails for large files due to call stack limits
     const arrayBuffer = await file.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const base64 = encodeBase64(new Uint8Array(arrayBuffer));
 
     // Map MIME type to Claude's expected format
     const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/webp';
