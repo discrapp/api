@@ -56,29 +56,23 @@ interface CatalogDisc {
   stability: string | null;
 }
 
-const CLAUDE_PROMPT = `Analyze this disc golf disc image and identify it.
+const CLAUDE_PROMPT = `You are an expert disc golf disc identifier. ALWAYS make your best guess, even if worn/faded.
 
-Look for:
-- Manufacturer name/logo (common ones: Innova, Discraft, MVP, Axiom, Discmania, Dynamic Discs, Latitude 64, Westside, Kastaplast, Prodigy, Streamline, Thought Space Athletics, Lone Star Discs, Mint Discs, Clash Discs, Legacy, Gateway, Infinite Discs)
-- Disc mold/model name on the stamp (e.g., Destroyer, Buzzz, Tesla, Reactor, PD2, Judge)
-- Any flight numbers visible (4 numbers like 12/5/-1/3)
-- Plastic type if visible (Champion, Star, ESP, Neutron, etc.)
-- The primary color of the disc (choose from: Red, Orange, Yellow, Green, Blue, Purple, Pink, White, Black, Gray, or Multi for multicolored/tie-dye)
+READ TEXT CAREFULLY - look for:
+- Disc MODEL NAME (largest text, often in arc shape): Destroyer, Leopard, Buzzz, Teebird, etc.
+- MANUFACTURER: Innova (star logo), Discraft, MVP, Discmania, Latitude 64, Dynamic Discs
+- PLASTIC TYPE (small text): DX, Pro, Champion, Star, GStar, Halo, ESP, Z, Neutron
 
-IMPORTANT: Return ONLY a valid JSON object with no additional text, markdown, or explanation.
+COMMON DISCS BY BRAND:
+Innova: Destroyer, Wraith, Firebird, Thunderbird, Valkyrie, Leopard, Teebird, Roc3, Mako3, Aviar, Pig
+Discraft: Zeus, Nuke, Force, Undertaker, Buzzz, Zone, Luna
+MVP/Axiom: Tesla, Volt, Reactor, Hex, Envy, Proxy
+Discmania: DD3, PD, FD, MD3, P2
 
-{
-  "manufacturer": "string or null if unknown",
-  "mold": "string or null if unknown",
-  "flight_numbers": {"speed": N, "glide": N, "turn": N, "fade": N} or null,
-  "plastic": "string or null if unknown",
-  "color": "Red|Orange|Yellow|Green|Blue|Purple|Pink|White|Black|Gray|Multi",
-  "confidence": 0.0-1.0,
-  "visible_text": "describe all text/logos visible on the disc"
-}
+Return ONLY this JSON (no other text):
+{"manufacturer":"string","mold":"string","flight_numbers":{"speed":N,"glide":N,"turn":N,"fade":N},"plastic":"string or null","color":"Red|Orange|Yellow|Green|Blue|Purple|Pink|White|Black|Gray|Multi","confidence":0.0-1.0,"visible_text":"describe all text/logos seen"}
 
-If you cannot identify the disc with reasonable certainty, set confidence below 0.5.
-If you can identify the manufacturer but not the specific mold, set mold to null.`;
+IMPORTANT: ALWAYS guess manufacturer and mold. Spell out partial letters you see. Users can correct mistakes.`;
 
 const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
