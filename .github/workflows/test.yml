@@ -37,7 +37,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          deno test --allow-all --coverage=coverage supabase/functions/
+          deno test --allow-all --reload --coverage=coverage supabase/functions/
           deno coverage coverage --exclude='supabase/functions/_shared/sentry-integration.ts' --lcov > coverage/lcov.info
 
       - name: Parse lcov and get coverage values
