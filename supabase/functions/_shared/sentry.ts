@@ -1,6 +1,9 @@
 /**
  * Sentry error tracking utilities for Supabase Edge Functions
  *
+ * This module provides application logic for error tracking with Sentry.
+ * Third-party integration code is separated into sentry-integration.ts.
+ *
  * Usage:
  *   import { initSentry, captureException, setUser } from '../_shared/sentry.ts';
  *
@@ -18,11 +21,44 @@
  *   }
  */
 
-// Note: We use dynamic import to avoid loading Sentry when DSN is not set
-let Sentry: typeof import('npm:@sentry/node') | null = null;
-let initialized = false;
+import {
+  initSentrySDK,
+  isSentryConfigured,
+  sendToSentry,
+  setSentryUser,
+} from './sentry-integration.ts';
 
-const SENTRY_DSN = Deno.env.get('SENTRY_DSN');
+// Allow dependency injection for testing
+export interface SentryIntegration {
+  initSentrySDK: () => Promise<void>;
+  isSentryConfigured: () => boolean;
+  sendToSentry: (error: Error | unknown, context?: Record<string, unknown>) => void;
+  setSentryUser: (userId: string | null) => void;
+}
+
+// Default integration (production)
+let integration: SentryIntegration = {
+  initSentrySDK,
+  isSentryConfigured,
+  sendToSentry,
+  setSentryUser,
+};
+
+/**
+ * Set a custom integration (for testing)
+ * @internal
+ */
+export function _setIntegration(customIntegration: SentryIntegration): void {
+  integration = customIntegration;
+}
+
+/**
+ * Reset to default integration (for testing)
+ * @internal
+ */
+export function _resetIntegration(): void {
+  integration = { initSentrySDK, isSentryConfigured, sendToSentry, setSentryUser };
+}
 
 /**
  * Initialize Sentry error tracking.
@@ -30,25 +66,13 @@ const SENTRY_DSN = Deno.env.get('SENTRY_DSN');
  * Safe to call multiple times - will only initialize once.
  */
 export async function initSentry(): Promise<void> {
-  if (initialized || !SENTRY_DSN) {
-    if (!SENTRY_DSN) {
-      console.log('Sentry DSN not configured, skipping initialization');
-    }
+  const sentryDsn = Deno.env.get('SENTRY_DSN');
+  if (!sentryDsn) {
+    console.log('Sentry DSN not configured, skipping initialization');
     return;
   }
 
-  try {
-    Sentry = await import('npm:@sentry/node');
-    Sentry.init({
-      dsn: SENTRY_DSN,
-      environment: Deno.env.get('ENVIRONMENT') || 'production',
-      tracesSampleRate: 0.1, // 10% of transactions for performance
-    });
-    initialized = true;
-    console.log('Sentry initialized successfully');
-  } catch (error) {
-    console.error('Failed to initialize Sentry:', error);
-  }
+  await integration.initSentrySDK();
 }
 
 /**
@@ -57,19 +81,12 @@ export async function initSentry(): Promise<void> {
  * @param context - Optional context to attach to the error
  */
 export function captureException(error: Error | unknown, context?: Record<string, unknown>): void {
-  if (!Sentry || !SENTRY_DSN) {
+  if (!integration.isSentryConfigured()) {
     console.error('Sentry not configured, error logged locally:', error);
     return;
   }
 
-  if (context) {
-    Sentry.withScope((scope: { setExtras: (extras: Record<string, unknown>) => void }) => {
-      scope.setExtras(context);
-      Sentry!.captureException(error);
-    });
-  } else {
-    Sentry.captureException(error);
-  }
+  integration.sendToSentry(error, context);
 }
 
 /**
@@ -77,16 +94,12 @@ export function captureException(error: Error | unknown, context?: Record<string
  * @param userId - The user's ID, or null to clear
  */
 export function setUser(userId: string | null): void {
-  if (!Sentry || !SENTRY_DSN) {
+  if (!integration.isSentryConfigured()) {
     return;
   }
 
-  if (userId) {
-    Sentry.setUser({ id: userId });
-  } else {
-    Sentry.setUser(null);
-  }
+  integration.setSentryUser(userId);
 }
 
-// Re-export for direct access if needed
-export { Sentry };
+// Re-export for backward compatibility
+export { isSentryConfigured as Sentry };

@@ -469,16 +469,33 @@ Deno.serve(withSentry(handler));
 - Validate all user inputs
 - Use parameterized queries
 
+## Test Coverage
+
+This project maintains ~95%+ test coverage for all application code. See
+@TESTING.md for details on:
+
+- Coverage requirements and exclusions
+- Running tests with coverage
+- Adding tests for new code
+- Third-party integration handling
+
+**Quick command:**
+
+```bash
+./scripts/test-coverage.sh
+```
+
 ## References
 
 - @README.md - Repository overview
+- @TESTING.md - Testing guidelines and coverage information
 - Supabase Documentation: <https://supabase.com/docs>
 - Supabase CLI Reference: <https://supabase.com/docs/reference/cli>
 - Deno Documentation: <https://deno.land/manual>
 
 ---
 
-**Last Updated:** 2025-12-17
+**Last Updated:** 2025-12-26
 
 This file should be updated whenever:
 

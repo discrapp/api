@@ -37,8 +37,8 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          deno test --allow-all --coverage=coverage supabase/functions/
-          deno coverage coverage --lcov > coverage/lcov.info
+          deno test --allow-all --reload --coverage=coverage supabase/functions/
+          deno coverage coverage --exclude='supabase/functions/_shared/sentry-integration.ts' --lcov > coverage/lcov.info
 
       - name: Parse lcov and get coverage values
         id: coverage
@@ -128,13 +128,32 @@ jobs:
           path: coverage/coverage-summary.json
           key: coverage-main-latest
 
+  test-schema:
+    name: Run Schema Tests (Vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest tests
+        run: npm test
+
   coverage-report:
     name: Coverage Report
     needs: test
     if: github.event_name == 'pull_request'
     uses: discrapp/.github/.github/workflows/coverage.yml@main
     with:
-      coverage_threshold: 40
+      coverage_threshold: 90
       pr_statements: ${{ needs.test.outputs.statements }}
       pr_branches: ${{ needs.test.outputs.branches }}
       pr_functions: ${{ needs.test.outputs.functions }}

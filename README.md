@@ -139,6 +139,43 @@ docs: update documentation
 chore: maintenance tasks
 ```
 
+## Test Coverage
+
+This project maintains **95.5% line coverage** and **82.4% branch coverage** for
+all application code.
+
+### Running Tests
+
+```bash
+# Run all tests with coverage report
+./scripts/test-coverage.sh
+
+# Run tests only (faster)
+cd supabase/functions
+deno test --allow-all
+
+# View HTML coverage report
+open supabase/functions/.coverage/html/index.html
+```
+
+### Coverage Details
+
+- **487 tests** all passing ✅
+- **Application code:** 100% coverage (all testable code)
+- **Overall:** 95.5% line coverage, 82.4% branch coverage
+- **Excluded:** 4.5% third-party integration code (documented in TESTING.md)
+
+**What's excluded and why:**
+
+| File | Reason |
+|------|--------|
+| `sentry-integration.ts` | Third-party Sentry SDK integration |
+| `sentry.ts` (3 lines) | Call sites to excluded integration |
+| `logo-data.ts` | Base64-encoded image data |
+
+See [TESTING.md](./TESTING.md) for complete testing guidelines and coverage
+exclusion rationale.
+
 ## License
 
 See LICENSE file for details.

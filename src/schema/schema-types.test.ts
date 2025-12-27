@@ -58,10 +58,13 @@ describe('schema type inference', () => {
       qr_code_id: null,
       name: 'Destroyer',
       manufacturer: null,
+      mold: null,
       plastic: null,
       weight: null,
+      color: null,
       flight_numbers: { speed: 12, glide: 5, turn: -1, fade: 3 },
       reward_amount: null,
+      notes: null,
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -74,6 +77,7 @@ describe('schema type inference', () => {
     const newDiscPhoto: NewDiscPhoto = {
       disc_id: '123e4567-e89b-12d3-a456-426614174000',
       storage_path: '/photos/disc123.jpg',
+      photo_uuid: '550e8400-e29b-41d4-a716-446655440000',
     };
 
     const discPhoto: DiscPhoto = {

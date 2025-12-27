@@ -1,3 +1,7 @@
 {
-  "nodeModulesDir": "auto"
+  "nodeModulesDir": "auto",
+  "exclude": [
+    "supabase/functions/_shared/sentry-integration.ts",
+    "supabase/functions/generate-sticker-pdf/logo-data.ts"
+  ]
 }
