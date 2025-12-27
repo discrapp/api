@@ -107,8 +107,23 @@ jobs:
         run: |
           supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
+          # Get all deployed functions
+          deployed_functions=$(supabase functions list --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} 2>/dev/null | tail -n +2 | awk '{print $1}' || echo "")
+
+          # Get all local function directories (excluding _shared)
+          local_functions=$(ls -d supabase/functions/*/ 2>/dev/null | xargs -I {} basename {} | grep -v "^_shared$" || echo "")
+
+          # Check for new functions that aren't deployed yet
+          new_functions=""
+          for fn in $local_functions; do
+            if ! echo "$deployed_functions" | grep -q "^$fn$"; then
+              echo "Found new function not yet deployed: $fn"
+              new_functions="$new_functions $fn"
+            fi
+          done
+
           # Get changed files in supabase/functions/
-          changed_files=$(git diff --name-only HEAD~1 HEAD -- supabase/functions/)
+          changed_files=$(git diff --name-only HEAD~1 HEAD -- supabase/functions/ 2>/dev/null || echo "")
 
           # If _shared changed, deploy all functions
           if echo "$changed_files" | grep -q "supabase/functions/_shared/"; then
@@ -120,13 +135,16 @@ jobs:
           # Get unique function directories that changed
           changed_functions=$(echo "$changed_files" | grep "supabase/functions/" | cut -d'/' -f3 | sort -u | grep -v "^_shared$" || true)
 
-          if [ -z "$changed_functions" ]; then
+          # Combine new functions with changed functions
+          all_functions_to_deploy=$(echo "$new_functions $changed_functions" | tr ' ' '\n' | sort -u | grep -v "^$" || true)
+
+          if [ -z "$all_functions_to_deploy" ]; then
             echo "No function changes detected - skipping deployment"
             exit 0
           fi
 
-          echo "Deploying changed functions: $changed_functions"
-          for fn in $changed_functions; do
+          echo "Deploying functions: $all_functions_to_deploy"
+          for fn in $all_functions_to_deploy; do
             if [ -d "supabase/functions/$fn" ]; then
               echo "Deploying $fn..."
               supabase functions deploy "$fn" --no-verify-jwt

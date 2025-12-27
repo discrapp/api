@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
 
@@ -38,6 +39,7 @@ interface DiscIdentification {
     fade: number | null;
   } | null;
   plastic: string | null;
+  color: string | null;
   confidence: number;
   visible_text: string;
 }
@@ -54,27 +56,23 @@ interface CatalogDisc {
   stability: string | null;
 }
 
-const CLAUDE_PROMPT = `Analyze this disc golf disc image and identify it.
+const CLAUDE_PROMPT = `You are an expert disc golf disc identifier. ALWAYS make your best guess, even if worn/faded.
 
-Look for:
-- Manufacturer name/logo (common ones: Innova, Discraft, MVP, Axiom, Discmania, Dynamic Discs, Latitude 64, Westside, Kastaplast, Prodigy, Streamline, Thought Space Athletics, Lone Star Discs, Mint Discs, Clash Discs, Legacy, Gateway, Infinite Discs)
-- Disc mold/model name on the stamp (e.g., Destroyer, Buzzz, Tesla, Reactor, PD2, Judge)
-- Any flight numbers visible (4 numbers like 12/5/-1/3)
-- Plastic type if visible (Champion, Star, ESP, Neutron, etc.)
+READ TEXT CAREFULLY - look for:
+- Disc MODEL NAME (largest text, often in arc shape): Destroyer, Leopard, Buzzz, Teebird, etc.
+- MANUFACTURER: Innova (star logo), Discraft, MVP, Discmania, Latitude 64, Dynamic Discs
+- PLASTIC TYPE (small text): DX, Pro, Champion, Star, GStar, Halo, ESP, Z, Neutron
 
-IMPORTANT: Return ONLY a valid JSON object with no additional text, markdown, or explanation.
+COMMON DISCS BY BRAND:
+Innova: Destroyer, Wraith, Firebird, Thunderbird, Valkyrie, Leopard, Teebird, Roc3, Mako3, Aviar, Pig
+Discraft: Zeus, Nuke, Force, Undertaker, Buzzz, Zone, Luna
+MVP/Axiom: Tesla, Volt, Reactor, Hex, Envy, Proxy
+Discmania: DD3, PD, FD, MD3, P2
 
-{
-  "manufacturer": "string or null if unknown",
-  "mold": "string or null if unknown",
-  "flight_numbers": {"speed": N, "glide": N, "turn": N, "fade": N} or null,
-  "plastic": "string or null if unknown",
-  "confidence": 0.0-1.0,
-  "visible_text": "describe all text/logos visible on the disc"
-}
+Return ONLY this JSON (no other text):
+{"manufacturer":"string","mold":"string","flight_numbers":{"speed":N,"glide":N,"turn":N,"fade":N},"plastic":"string or null","color":"Red|Orange|Yellow|Green|Blue|Purple|Pink|White|Black|Gray|Multi","confidence":0.0-1.0,"visible_text":"describe all text/logos seen"}
 
-If you cannot identify the disc with reasonable certainty, set confidence below 0.5.
-If you can identify the manufacturer but not the specific mold, set mold to null.`;
+IMPORTANT: ALWAYS guess manufacturer and mold. Spell out partial letters you see. Users can correct mistakes.`;
 
 const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
@@ -168,9 +166,10 @@ const handler = async (req: Request): Promise<Response> => {
   const startTime = Date.now();
 
   try {
-    // Convert file to base64
+    // Convert file to base64 using Deno's standard encoding
+    // Note: btoa with spread operator fails for large files due to call stack limits
     const arrayBuffer = await file.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const base64 = encodeBase64(new Uint8Array(arrayBuffer));
 
     // Map MIME type to Claude's expected format
     const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/webp';
@@ -216,7 +215,11 @@ const handler = async (req: Request): Promise<Response> => {
         statusCode: claudeResponse.status,
         errorText,
       });
-      return new Response(JSON.stringify({ error: 'AI identification failed' }), {
+      // Return detailed error for debugging
+      return new Response(JSON.stringify({
+        error: 'AI identification failed',
+        details: `Claude API returned ${claudeResponse.status}: ${errorText.substring(0, 500)}`,
+      }), {
         status: 502,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -320,21 +323,26 @@ const handler = async (req: Request): Promise<Response> => {
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
     // Log the identification attempt
-    const { error: logError } = await supabaseAdmin.from('ai_identification_logs').insert({
-      user_id: user.id,
-      ai_manufacturer: identification.manufacturer,
-      ai_mold: identification.mold,
-      ai_confidence: identification.confidence,
-      ai_flight_numbers: identification.flight_numbers,
-      ai_plastic: identification.plastic,
-      ai_raw_response: {
-        identification,
+    const { data: logData, error: logError } = await supabaseAdmin
+      .from('ai_identification_logs')
+      .insert({
+        user_id: user.id,
+        ai_manufacturer: identification.manufacturer,
+        ai_mold: identification.mold,
+        ai_confidence: identification.confidence,
+        ai_flight_numbers: identification.flight_numbers,
+        ai_plastic: identification.plastic,
+        ai_color: identification.color,
+        ai_raw_response: {
+          identification,
+          catalog_match_id: catalogMatch?.id || null,
+        },
         catalog_match_id: catalogMatch?.id || null,
-      },
-      catalog_match_id: catalogMatch?.id || null,
-      processing_time_ms: processingTime,
-      model_version: 'claude-sonnet-4-20250514',
-    });
+        processing_time_ms: processingTime,
+        model_version: 'claude-sonnet-4-20250514',
+      })
+      .select('id')
+      .single();
 
     if (logError) {
       // Log but don't fail the request
@@ -350,10 +358,12 @@ const handler = async (req: Request): Promise<Response> => {
           raw_text: identification.visible_text,
           flight_numbers: identification.flight_numbers,
           plastic: identification.plastic,
+          color: identification.color,
         },
         catalog_match: catalogMatch,
         similar_matches: similarMatches,
         processing_time_ms: processingTime,
+        log_id: logData?.id || null,
       }),
       {
         status: 200,

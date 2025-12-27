@@ -20,6 +20,7 @@ interface CreateDiscRequest {
   reward_amount?: number;
   notes?: string;
   qr_code_id?: string;
+  ai_identification_log_id?: string;
 }
 
 function validateFlightNumbers(flightNumbers: FlightNumbers): string | null {
@@ -127,6 +128,7 @@ const handler = async (req: Request): Promise<Response> => {
       reward_amount: body.reward_amount,
       notes: body.notes,
       qr_code_id: body.qr_code_id,
+      ai_identification_log_id: body.ai_identification_log_id,
     })
     .select()
     .single();
@@ -137,6 +139,41 @@ const handler = async (req: Request): Promise<Response> => {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // If this disc was created from AI identification, update the log with corrections
+  if (body.ai_identification_log_id) {
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+
+    // Get the original AI identification to compare
+    const { data: aiLog } = await supabaseAdmin
+      .from('ai_identification_logs')
+      .select('ai_manufacturer, ai_mold, ai_plastic, ai_color')
+      .eq('id', body.ai_identification_log_id)
+      .single();
+
+    if (aiLog) {
+      // Check if user made any corrections
+      const wasCorrected =
+        (aiLog.ai_manufacturer || '') !== (body.manufacturer || '') ||
+        (aiLog.ai_mold || '') !== (body.mold || '') ||
+        (aiLog.ai_plastic || '') !== (body.plastic || '') ||
+        (aiLog.ai_color || '') !== (body.color || '');
+
+      // Update the log with user's final values and correction status
+      await supabaseAdmin
+        .from('ai_identification_logs')
+        .update({
+          disc_id: disc.id,
+          user_manufacturer: body.manufacturer,
+          user_mold: body.mold,
+          user_plastic: body.plastic,
+          user_color: body.color,
+          was_corrected: wasCorrected,
+        })
+        .eq('id', body.ai_identification_log_id);
+    }
   }
 
   return new Response(JSON.stringify(disc), { status: 201, headers: { 'Content-Type': 'application/json' } });
