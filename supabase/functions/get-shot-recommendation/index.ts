@@ -30,12 +30,13 @@ function getPhotoUrl(storagePath: string, supabaseUrl: string): string {
 
 // Helper to get the primary photo URL for a disc (prefers 'top' type)
 function getDiscPhotoUrl(disc: UserDisc, supabaseUrl: string): string | null {
-  if (!disc.disc_photos || disc.disc_photos.length === 0) {
+  const photos = disc.disc_photos;
+  if (!photos || !Array.isArray(photos) || photos.length === 0) {
     return null;
   }
   // Prefer 'top' photo type, fall back to first available
-  const topPhoto = disc.disc_photos.find((p) => p.photo_type === 'top');
-  const photo = topPhoto || disc.disc_photos[0];
+  const topPhoto = photos.find((p) => p.photo_type === 'top');
+  const photo = topPhoto || photos[0];
   return getPhotoUrl(photo.storage_path, supabaseUrl);
 }
 
