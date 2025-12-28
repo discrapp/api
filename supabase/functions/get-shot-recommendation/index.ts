@@ -30,15 +30,19 @@ interface ClaudeVisionResponse {
   }>;
 }
 
+interface FlightNumbers {
+  speed: number;
+  glide: number;
+  turn: number;
+  fade: number;
+}
+
 interface UserDisc {
   id: string;
   name: string | null;
   manufacturer: string | null;
   mold: string | null;
-  speed: number | null;
-  glide: number | null;
-  turn: number | null;
-  fade: number | null;
+  flight_numbers: FlightNumbers | null;
 }
 
 interface ShotRecommendation {
@@ -70,8 +74,8 @@ function buildClaudePrompt(discs: UserDisc[], throwingHand: 'right' | 'left'): s
     .map((d) => {
       const name = d.mold || d.name || 'Unknown';
       const manufacturer = d.manufacturer || 'Unknown';
-      const flightNumbers =
-        d.speed !== null ? `${d.speed}/${d.glide}/${d.turn}/${d.fade}` : 'N/A';
+      const fn = d.flight_numbers;
+      const flightNumbers = fn ? `${fn.speed}/${fn.glide}/${fn.turn}/${fn.fade}` : 'N/A';
       return `- ${name} (${manufacturer}): ${flightNumbers} [ID: ${d.id}]`;
     })
     .join('\n');
@@ -215,7 +219,7 @@ const handler = async (req: Request): Promise<Response> => {
   // Fetch user's discs
   const { data: userDiscs, error: discsError } = await supabase
     .from('discs')
-    .select('id, name, manufacturer, mold, speed, glide, turn, fade')
+    .select('id, name, manufacturer, mold, flight_numbers')
     .eq('owner_id', user.id);
 
   if (discsError) {
@@ -404,12 +408,7 @@ const handler = async (req: Request): Promise<Response> => {
               id: altDisc.id,
               name: altDisc.mold || altDisc.name,
               manufacturer: altDisc.manufacturer,
-              flight_numbers: {
-                speed: altDisc.speed,
-                glide: altDisc.glide,
-                turn: altDisc.turn,
-                fade: altDisc.fade,
-              },
+              flight_numbers: altDisc.flight_numbers,
             }
           : {
               id: alt.disc_id,
@@ -430,12 +429,7 @@ const handler = async (req: Request): Promise<Response> => {
                 id: recommendedDisc.id,
                 name: recommendedDisc.mold || recommendedDisc.name,
                 manufacturer: recommendedDisc.manufacturer,
-                flight_numbers: {
-                  speed: recommendedDisc.speed,
-                  glide: recommendedDisc.glide,
-                  turn: recommendedDisc.turn,
-                  fade: recommendedDisc.fade,
-                },
+                flight_numbers: recommendedDisc.flight_numbers,
               }
             : null,
           throw_type: recommendation.recommendation.throw_type,
