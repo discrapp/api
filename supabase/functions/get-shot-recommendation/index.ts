@@ -23,6 +23,22 @@ import { setUser, captureException } from '../_shared/sentry.ts';
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
+// Helper to get photo URL from storage path
+function getPhotoUrl(storagePath: string, supabaseUrl: string): string {
+  return `${supabaseUrl}/storage/v1/object/public/disc-photos/${storagePath}`;
+}
+
+// Helper to get the primary photo URL for a disc (prefers 'top' type)
+function getDiscPhotoUrl(disc: UserDisc, supabaseUrl: string): string | null {
+  if (!disc.disc_photos || disc.disc_photos.length === 0) {
+    return null;
+  }
+  // Prefer 'top' photo type, fall back to first available
+  const topPhoto = disc.disc_photos.find((p) => p.photo_type === 'top');
+  const photo = topPhoto || disc.disc_photos[0];
+  return getPhotoUrl(photo.storage_path, supabaseUrl);
+}
+
 interface ClaudeVisionResponse {
   content: Array<{
     type: string;
@@ -37,12 +53,18 @@ interface FlightNumbers {
   fade: number;
 }
 
+interface DiscPhoto {
+  storage_path: string;
+  photo_type: string;
+}
+
 interface UserDisc {
   id: string;
   name: string | null;
   manufacturer: string | null;
   mold: string | null;
   flight_numbers: FlightNumbers | null;
+  disc_photos: DiscPhoto[];
 }
 
 interface ShotRecommendation {
@@ -216,10 +238,10 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Fetch user's discs
+  // Fetch user's discs with photos
   const { data: userDiscs, error: discsError } = await supabase
     .from('discs')
-    .select('id, name, manufacturer, mold, flight_numbers')
+    .select('id, name, manufacturer, mold, flight_numbers, disc_photos(storage_path, photo_type)')
     .eq('owner_id', user.id);
 
   if (discsError) {
@@ -409,12 +431,14 @@ const handler = async (req: Request): Promise<Response> => {
               name: altDisc.mold || altDisc.name,
               manufacturer: altDisc.manufacturer,
               flight_numbers: altDisc.flight_numbers,
+              photo_url: getDiscPhotoUrl(altDisc, supabaseUrl),
             }
           : {
               id: alt.disc_id,
               name: alt.disc_name,
               manufacturer: null,
               flight_numbers: null,
+              photo_url: null,
             },
         throw_type: alt.throw_type,
         reason: alt.reason,
@@ -430,6 +454,7 @@ const handler = async (req: Request): Promise<Response> => {
                 name: recommendedDisc.mold || recommendedDisc.name,
                 manufacturer: recommendedDisc.manufacturer,
                 flight_numbers: recommendedDisc.flight_numbers,
+                photo_url: getDiscPhotoUrl(recommendedDisc, supabaseUrl),
               }
             : null,
           throw_type: recommendation.recommendation.throw_type,
