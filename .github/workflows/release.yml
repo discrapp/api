@@ -108,11 +108,13 @@ jobs:
         run: |
           supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
-          # Get all deployed functions
-          deployed_functions=$(supabase functions list --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} 2>/dev/null | tail -n +2 | awk '{print $1}' || echo "")
+          # Get all deployed functions (skip 4 header lines, extract SLUG from column 3)
+          deployed_functions=$(supabase functions list --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} 2>/dev/null | tail -n +5 | awk -F'|' '{gsub(/^ +| +$/, "", $3); print $3}' || echo "")
+          echo "Found $(echo "$deployed_functions" | grep -c .) deployed functions"
 
           # Get all local function directories (excluding _shared)
           local_functions=$(ls -d supabase/functions/*/ 2>/dev/null | xargs -I {} basename {} | grep -v "^_shared$" || echo "")
+          echo "Found $(echo "$local_functions" | wc -w | tr -d ' ') local functions"
 
           # Check for new functions that aren't deployed yet
           new_functions=""
