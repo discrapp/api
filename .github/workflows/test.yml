@@ -92,6 +92,8 @@ jobs:
         with:
           path: base-coverage/coverage-summary.json
           key: coverage-main-latest
+          restore-keys: |
+            coverage-main-
 
       - name: Get base coverage values
         id: base-coverage
@@ -114,18 +116,24 @@ jobs:
             echo "lines=$LINES"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Prepare coverage for caching
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p base-coverage
+          cp coverage/coverage-summary.json base-coverage/coverage-summary.json
+
       - name: Cache main branch coverage
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
-          path: coverage/coverage-summary.json
+          path: base-coverage/coverage-summary.json
           key: coverage-main-${{ github.sha }}
 
       - name: Update latest main coverage cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
-          path: coverage/coverage-summary.json
+          path: base-coverage/coverage-summary.json
           key: coverage-main-latest
 
   test-schema:
