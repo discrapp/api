@@ -23,23 +23,6 @@ import { setUser, captureException } from '../_shared/sentry.ts';
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-// Helper to get photo URL from storage path
-function getPhotoUrl(storagePath: string, supabaseUrl: string): string {
-  return `${supabaseUrl}/storage/v1/object/public/disc-photos/${storagePath}`;
-}
-
-// Helper to get the primary photo URL for a disc (prefers 'top' type)
-function getDiscPhotoUrl(disc: UserDisc, supabaseUrl: string): string | null {
-  const photos = disc.disc_photos;
-  if (!photos || !Array.isArray(photos) || photos.length === 0) {
-    return null;
-  }
-  // Prefer 'top' photo type, fall back to first available
-  const topPhoto = photos.find((p) => p.photo_type === 'top');
-  const photo = topPhoto || photos[0];
-  return getPhotoUrl(photo.storage_path, supabaseUrl);
-}
-
 interface ClaudeVisionResponse {
   content: Array<{
     type: string;
@@ -55,8 +38,9 @@ interface FlightNumbers {
 }
 
 interface DiscPhoto {
+  id: string;
   storage_path: string;
-  photo_type: string;
+  photo_type: 'profile' | 'additional';
 }
 
 interface UserDisc {
@@ -242,7 +226,7 @@ const handler = async (req: Request): Promise<Response> => {
   // Fetch user's discs with photos
   const { data: userDiscs, error: discsError } = await supabase
     .from('discs')
-    .select('id, name, manufacturer, mold, flight_numbers, disc_photos(storage_path, photo_type)')
+    .select('id, name, manufacturer, mold, flight_numbers, disc_photos(id, storage_path, photo_type)')
     .eq('owner_id', user.id);
 
   if (discsError) {
@@ -259,23 +243,32 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   if (!userDiscs || userDiscs.length === 0) {
-    return new Response(
-      JSON.stringify({ error: 'No discs in bag. Add discs to get shot recommendations.' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'No discs in bag. Add discs to get shot recommendations.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Fetch user's throwing hand (default to right if not set)
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('throwing_hand')
-    .eq('id', user.id)
-    .single();
+  const { data: profile } = await supabase.from('profiles').select('throwing_hand').eq('id', user.id).single();
 
   const throwingHand: 'right' | 'left' = profile?.throwing_hand ?? 'right';
+
+  // Create service role client for storage operations and logging
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+
+  // Helper to get signed URL for a disc's profile photo
+  async function getDiscPhotoUrl(disc: UserDisc): Promise<string | null> {
+    const profilePhoto = disc.disc_photos?.find((p) => p.photo_type === 'profile');
+    if (!profilePhoto) return null;
+
+    const { data: urlData } = await supabaseAdmin.storage
+      .from('disc-photos')
+      .createSignedUrl(profilePhoto.storage_path, 3600); // 1 hour expiry
+
+    return urlData?.signedUrl || null;
+  }
 
   const startTime = Date.now();
 
@@ -393,10 +386,6 @@ const handler = async (req: Request): Promise<Response> => {
     // Find the recommended disc details
     const recommendedDisc = userDiscs.find((d) => d.id === recommendation.recommendation.disc_id);
 
-    // Create service role client for logging
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-
     // Log the recommendation
     const { data: logData, error: logError } = await supabaseAdmin
       .from('shot_recommendation_logs')
@@ -422,29 +411,35 @@ const handler = async (req: Request): Promise<Response> => {
       console.error('Failed to log recommendation:', logError);
     }
 
-    // Build alternatives with full disc details
-    const alternatives = recommendation.alternatives.map((alt) => {
-      const altDisc = userDiscs.find((d) => d.id === alt.disc_id);
-      return {
-        disc: altDisc
-          ? {
-              id: altDisc.id,
-              name: altDisc.mold || altDisc.name,
-              manufacturer: altDisc.manufacturer,
-              flight_numbers: altDisc.flight_numbers,
-              photo_url: getDiscPhotoUrl(altDisc, supabaseUrl),
-            }
-          : {
-              id: alt.disc_id,
-              name: alt.disc_name,
-              manufacturer: null,
-              flight_numbers: null,
-              photo_url: null,
-            },
-        throw_type: alt.throw_type,
-        reason: alt.reason,
-      };
-    });
+    // Build alternatives with full disc details and photos
+    const alternatives = await Promise.all(
+      recommendation.alternatives.map(async (alt) => {
+        const altDisc = userDiscs.find((d) => d.id === alt.disc_id);
+        const photoUrl = altDisc ? await getDiscPhotoUrl(altDisc) : null;
+        return {
+          disc: altDisc
+            ? {
+                id: altDisc.id,
+                name: altDisc.mold || altDisc.name,
+                manufacturer: altDisc.manufacturer,
+                flight_numbers: altDisc.flight_numbers,
+                photo_url: photoUrl,
+              }
+            : {
+                id: alt.disc_id,
+                name: alt.disc_name,
+                manufacturer: null,
+                flight_numbers: null,
+                photo_url: null,
+              },
+          throw_type: alt.throw_type,
+          reason: alt.reason,
+        };
+      })
+    );
+
+    // Get photo URL for recommended disc
+    const recommendedDiscPhotoUrl = recommendedDisc ? await getDiscPhotoUrl(recommendedDisc) : null;
 
     return new Response(
       JSON.stringify({
@@ -455,7 +450,7 @@ const handler = async (req: Request): Promise<Response> => {
                 name: recommendedDisc.mold || recommendedDisc.name,
                 manufacturer: recommendedDisc.manufacturer,
                 flight_numbers: recommendedDisc.flight_numbers,
-                photo_url: getDiscPhotoUrl(recommendedDisc, supabaseUrl),
+                photo_url: recommendedDiscPhotoUrl,
               }
             : null,
           throw_type: recommendation.recommendation.throw_type,
