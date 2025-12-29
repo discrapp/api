@@ -37,19 +37,12 @@ interface FlightNumbers {
   fade: number;
 }
 
-interface DiscPhoto {
-  id: string;
-  storage_path: string;
-  photo_type: 'profile' | 'additional';
-}
-
 interface UserDisc {
   id: string;
   name: string | null;
   manufacturer: string | null;
   mold: string | null;
   flight_numbers: FlightNumbers | null;
-  disc_photos: DiscPhoto[];
 }
 
 interface ShotRecommendation {
@@ -223,10 +216,10 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Fetch user's discs with photos
+  // Fetch user's discs (without photos - will fetch separately to avoid RLS join issues)
   const { data: userDiscs, error: discsError } = await supabase
     .from('discs')
-    .select('id, name, manufacturer, mold, flight_numbers, disc_photos(id, storage_path, photo_type)')
+    .select('id, name, manufacturer, mold, flight_numbers')
     .eq('owner_id', user.id);
 
   if (discsError) {
@@ -258,14 +251,21 @@ const handler = async (req: Request): Promise<Response> => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-  // Helper to get signed URL for a disc's profile photo
-  async function getDiscPhotoUrl(disc: UserDisc): Promise<string | null> {
-    const profilePhoto = disc.disc_photos?.find((p) => p.photo_type === 'profile');
-    if (!profilePhoto) return null;
+  // Helper to get signed URL for a disc's profile photo (fetches photo separately to avoid RLS join issues)
+  async function getDiscPhotoUrl(discId: string): Promise<string | null> {
+    // Fetch profile photo using service role to bypass RLS
+    const { data: photos } = await supabaseAdmin
+      .from('disc_photos')
+      .select('storage_path')
+      .eq('disc_id', discId)
+      .eq('photo_type', 'profile')
+      .limit(1);
+
+    if (!photos || photos.length === 0) return null;
 
     const { data: urlData } = await supabaseAdmin.storage
       .from('disc-photos')
-      .createSignedUrl(profilePhoto.storage_path, 3600); // 1 hour expiry
+      .createSignedUrl(photos[0].storage_path, 3600); // 1 hour expiry
 
     return urlData?.signedUrl || null;
   }
@@ -415,7 +415,7 @@ const handler = async (req: Request): Promise<Response> => {
     const alternatives = await Promise.all(
       recommendation.alternatives.map(async (alt) => {
         const altDisc = userDiscs.find((d) => d.id === alt.disc_id);
-        const photoUrl = altDisc ? await getDiscPhotoUrl(altDisc) : null;
+        const photoUrl = altDisc ? await getDiscPhotoUrl(altDisc.id) : null;
         return {
           disc: altDisc
             ? {
@@ -439,7 +439,7 @@ const handler = async (req: Request): Promise<Response> => {
     );
 
     // Get photo URL for recommended disc
-    const recommendedDiscPhotoUrl = recommendedDisc ? await getDiscPhotoUrl(recommendedDisc) : null;
+    const recommendedDiscPhotoUrl = recommendedDisc ? await getDiscPhotoUrl(recommendedDisc.id) : null;
 
     return new Response(
       JSON.stringify({
