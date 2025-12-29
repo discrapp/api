@@ -42,6 +42,7 @@ interface UserDisc {
   name: string | null;
   manufacturer: string | null;
   mold: string | null;
+  color: string | null;
   flight_numbers: FlightNumbers | null;
 }
 
@@ -219,7 +220,7 @@ const handler = async (req: Request): Promise<Response> => {
   // Fetch user's discs (without photos - will fetch separately to avoid RLS join issues)
   const { data: userDiscs, error: discsError } = await supabase
     .from('discs')
-    .select('id, name, manufacturer, mold, flight_numbers')
+    .select('id, name, manufacturer, mold, color, flight_numbers')
     .eq('owner_id', user.id);
 
   if (discsError) {
@@ -422,6 +423,7 @@ const handler = async (req: Request): Promise<Response> => {
                 id: altDisc.id,
                 name: altDisc.mold || altDisc.name,
                 manufacturer: altDisc.manufacturer,
+                color: altDisc.color,
                 flight_numbers: altDisc.flight_numbers,
                 photo_url: photoUrl,
               }
@@ -429,6 +431,7 @@ const handler = async (req: Request): Promise<Response> => {
                 id: alt.disc_id,
                 name: alt.disc_name,
                 manufacturer: null,
+                color: null,
                 flight_numbers: null,
                 photo_url: null,
               },
@@ -449,6 +452,7 @@ const handler = async (req: Request): Promise<Response> => {
                 id: recommendedDisc.id,
                 name: recommendedDisc.mold || recommendedDisc.name,
                 manufacturer: recommendedDisc.manufacturer,
+                color: recommendedDisc.color,
                 flight_numbers: recommendedDisc.flight_numbers,
                 photo_url: recommendedDiscPhotoUrl,
               }
