@@ -109,10 +109,13 @@ IMPORTANT GUIDELINES:
 FLIGHT PATH VISUALIZATION:
 Estimate the position of the tee box and basket in the image as percentages (0-100):
 - tee_position: Where the photo is taken from (usually bottom center, around x:50, y:85-95)
-- basket_position: Where the basket is ON THE GROUND at the end of the fairway.
-  IMPORTANT: The basket is ALWAYS on the ground, NOT in the sky. Look for where the fairway
-  leads to - typically y:30-60 range (middle of image), never above y:25 (that would be sky/trees).
-  If you can see the basket, use its exact position. If not, estimate where the fairway ends.
+- basket_position: Where the basket is located ON THE FAIRWAY/GROUND.
+  CRITICAL RULES:
+  1. The basket is ALWAYS on grass/ground, NEVER in sky, trees, or water
+  2. Follow the visible fairway/path - the basket is at the END of that path
+  3. Y value should typically be 40-65 (middle-lower portion of image)
+  4. If y is less than 35, you're probably placing it in trees/sky - move it DOWN
+  5. Look for the mowed grass area or walking path - basket is ON that surface
 
 Return ONLY this JSON (no other text):
 {
