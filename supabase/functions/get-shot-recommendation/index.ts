@@ -46,6 +46,11 @@ interface UserDisc {
   flight_numbers: FlightNumbers | null;
 }
 
+interface FlightPathCoordinates {
+  tee_position: { x: number; y: number };
+  basket_position: { x: number; y: number };
+}
+
 interface ShotRecommendation {
   estimated_distance_ft: number;
   confidence: number;
@@ -67,6 +72,7 @@ interface ShotRecommendation {
     throw_type: string;
     reason: string;
   }>;
+  flight_path: FlightPathCoordinates;
   analysis_notes: string;
 }
 
@@ -100,6 +106,11 @@ IMPORTANT GUIDELINES:
 - Power percentage is 50-100% (100% = full power)
 - Provide specific, actionable line description
 
+FLIGHT PATH VISUALIZATION:
+Estimate the position of the tee box and basket in the image as percentages (0-100):
+- tee_position: Where the photo is taken from (usually bottom center, around x:50, y:85-95)
+- basket_position: Where you see the basket in the image (x:0-100 left-to-right, y:0-100 top-to-bottom)
+
 Return ONLY this JSON (no other text):
 {
   "estimated_distance_ft": <number>,
@@ -124,6 +135,10 @@ Return ONLY this JSON (no other text):
       "reason": "<why this is an alternative>"
     }
   ],
+  "flight_path": {
+    "tee_position": { "x": <0-100>, "y": <0-100> },
+    "basket_position": { "x": <0-100>, "y": <0-100> }
+  },
   "analysis_notes": "<brief analysis>"
 }`;
 }
@@ -469,6 +484,7 @@ const handler = async (req: Request): Promise<Response> => {
         },
         alternatives,
         confidence: recommendation.confidence,
+        flight_path: recommendation.flight_path || null,
         processing_time_ms: processingTime,
         log_id: logData?.id || null,
       }),
