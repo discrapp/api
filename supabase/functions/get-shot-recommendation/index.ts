@@ -111,11 +111,12 @@ Estimate the position of the tee box and basket in the image as percentages (0-1
 - tee_position: Where the photo is taken from (usually bottom center, around x:50, y:85-95)
 - basket_position: Where the basket is located ON THE FAIRWAY/GROUND.
   CRITICAL RULES:
-  1. The basket is ALWAYS on grass/ground, NEVER in sky, trees, or water
-  2. Follow the visible fairway/path - the basket is at the END of that path
-  3. Y value should typically be 40-65 (middle-lower portion of image)
-  4. If y is less than 35, you're probably placing it in trees/sky - move it DOWN
-  5. Look for the mowed grass area or walking path - basket is ON that surface
+  1. NEVER place basket in water, trees, sky, or any hazard you identified above
+  2. The fairway is the SAFE grass area - basket MUST be on the fairway
+  3. In this image: if water is on LEFT, basket should be on RIGHT side of image (higher x value)
+  4. If water is on RIGHT, basket should be on LEFT side (lower x value)
+  5. Y value should be 45-60 - on the visible grass, not too far in the distance
+  6. Follow the walking path or mowed grass - that leads to the basket
 
 Return ONLY this JSON (no other text):
 {
