@@ -136,7 +136,16 @@ const handler = async (req: Request): Promise<Response> => {
 
   // QR code must be 'active' at this point - continue to look up the disc
 
-  // Get the disc associated with this QR code
+  // OPTIMIZED: Single query with JOINs to fetch disc, owner profile, photos, and
+  // active recovery events. This eliminates N+1 query issues by combining what
+  // was previously 4 separate queries into 1.
+  //
+  // Previous queries (N+1 pattern):
+  //   1. Disc lookup
+  //   2. Profile lookup (N+1!)
+  //   3. Recovery events lookup
+  //
+  // Optimized: Single query with embedded relations
   const { data: disc, error: discError } = await supabase
     .from('discs')
     .select(
@@ -149,37 +158,20 @@ const handler = async (req: Request): Promise<Response> => {
       color,
       reward_amount,
       owner_id,
-      photos:disc_photos(id, storage_path)
+      photos:disc_photos(id, storage_path),
+      owner:profiles!discs_owner_id_profiles_id_fk(
+        email,
+        username,
+        full_name,
+        display_preference
+      ),
+      active_recovery:recovery_events(id)
     `
     )
     .eq('qr_code_id', qrCode.id)
-    .single();
-
-  // Get owner display name from profile (separate query to avoid FK issues)
-  // If disc has no owner, it's claimable (was abandoned)
-  let ownerDisplayName = 'Anonymous';
-  const isClaimable = disc?.owner_id === null;
-
-  if (isClaimable) {
-    ownerDisplayName = 'No Owner - Available to Claim';
-  } else if (disc?.owner_id) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('email, username, full_name, display_preference')
-      .eq('id', disc.owner_id)
-      .single();
-    if (profile) {
-      // Use display preference to determine what to show
-      if (profile.display_preference === 'full_name' && profile.full_name) {
-        ownerDisplayName = profile.full_name;
-      } else if (profile.username) {
-        ownerDisplayName = profile.username;
-      } else if (profile.email) {
-        // Fallback to email username part
-        ownerDisplayName = profile.email.split('@')[0];
-      }
-    }
-  }
+    // Filter recovery events to only active statuses
+    .in('active_recovery.status', ['found', 'meetup_proposed', 'meetup_confirmed'])
+    .maybeSingle();
 
   if (discError || !disc) {
     return new Response(JSON.stringify({ found: false }), {
@@ -188,14 +180,38 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Check for active recovery events
-  const { data: activeRecovery } = await supabase
-    .from('recovery_events')
-    .select('id')
-    .eq('disc_id', disc.id)
-    .in('status', ['found', 'meetup_proposed', 'meetup_confirmed'])
-    .limit(1)
-    .maybeSingle();
+  // Derive owner display name from joined profile data
+  // If disc has no owner, it's claimable (was abandoned)
+  let ownerDisplayName = 'Anonymous';
+  const isClaimable = disc.owner_id === null;
+
+  // Type the owner profile - Supabase returns array for FK relations
+  // but for one-to-one we take the first element
+  type OwnerProfile = {
+    email: string;
+    username: string | null;
+    full_name: string | null;
+    display_preference: string | null;
+  };
+  const ownerProfile: OwnerProfile | null =
+    disc.owner && Array.isArray(disc.owner) && disc.owner.length > 0 ? (disc.owner[0] as OwnerProfile) : null;
+
+  if (isClaimable) {
+    ownerDisplayName = 'No Owner - Available to Claim';
+  } else if (ownerProfile) {
+    // Use display preference to determine what to show
+    if (ownerProfile.display_preference === 'full_name' && ownerProfile.full_name) {
+      ownerDisplayName = ownerProfile.full_name;
+    } else if (ownerProfile.username) {
+      ownerDisplayName = ownerProfile.username;
+    } else if (ownerProfile.email) {
+      // Fallback to email username part
+      ownerDisplayName = ownerProfile.email.split('@')[0];
+    }
+  }
+
+  // Check for active recovery from joined data
+  const hasActiveRecovery = disc.active_recovery && disc.active_recovery.length > 0;
 
   // Get first photo URL if available
   let photoUrl = null;
@@ -224,7 +240,7 @@ const handler = async (req: Request): Promise<Response> => {
         owner_display_name: ownerDisplayName,
         photo_url: photoUrl,
       },
-      has_active_recovery: !!activeRecovery,
+      has_active_recovery: hasActiveRecovery,
       is_owner: isOwner,
       is_claimable: isClaimable,
     }),

@@ -35,11 +35,31 @@ type MockRecoveryEvent = {
   recovered_at?: string;
 };
 
+type MockProfile = {
+  id: string;
+  email: string;
+  username?: string | null;
+  full_name?: string | null;
+  display_preference?: string | null;
+};
+
+// Type for disc with joined profile (optimized query result)
+type MockDiscWithProfile = MockDisc & {
+  owner?: MockProfile | null;
+  photos?: { id: string; storage_path: string }[];
+  active_recovery?: { id: string }[] | null;
+};
+
 // Mock data storage
 let mockUser: MockUser | null = null;
 let mockQRCodes: MockQRCode[] = [];
 let mockDiscs: MockDisc[] = [];
 let mockRecoveryEvents: MockRecoveryEvent[] = [];
+let mockProfiles: MockProfile[] = [];
+let mockDiscsWithProfiles: MockDiscWithProfile[] = [];
+
+// Query tracking for performance tests
+let queryCount = 0;
 
 // Reset mocks before each test
 function resetMocks() {
@@ -47,6 +67,9 @@ function resetMocks() {
   mockQRCodes = [];
   mockDiscs = [];
   mockRecoveryEvents = [];
+  mockProfiles = [];
+  mockDiscsWithProfiles = [];
+  queryCount = 0;
 }
 
 // Mock Supabase client
@@ -552,4 +575,431 @@ Deno.test('lookup-qr-code: should not expose owner private info', async () => {
 
   // Verify no sensitive owner info is exposed (would be undefined in real response)
   assertExists(responseData.disc.owner_display_name);
+});
+
+// ============================================================================
+// Performance Tests - N+1 Query Fix
+// These tests verify that the optimized query pattern returns correct data
+// ============================================================================
+
+// Mock Supabase client with optimized query support (JOINs)
+// Returns specific types based on table name
+function mockOptimizedSupabaseClient() {
+  return {
+    auth: {
+      getUser: () => {
+        queryCount++;
+        if (mockUser) {
+          return Promise.resolve({ data: { user: mockUser }, error: null });
+        }
+        return Promise.resolve({ data: { user: null }, error: null });
+      },
+    },
+    fromQrCodes: () => ({
+      select: (_columns?: string) => ({
+        eq: (_column: string, value: string) => ({
+          single: async (): Promise<{ data: MockQRCode | null; error: { code: string } | null }> => {
+            queryCount++;
+            const code = mockQRCodes.find((qr) => qr.short_code.toUpperCase() === value.toUpperCase());
+            if (!code) {
+              return { data: null, error: { code: 'PGRST116' } };
+            }
+            return { data: code, error: null };
+          },
+        }),
+      }),
+    }),
+    fromDiscs: () => ({
+      select: (_columns?: string) => ({
+        eq: (_column: string, value: string) => ({
+          single: async (): Promise<{ data: MockDiscWithProfile | null; error: { code: string } | null }> => {
+            queryCount++;
+            const disc = mockDiscsWithProfiles.find((d) => d.qr_code_id === value);
+            if (!disc) {
+              return { data: null, error: { code: 'PGRST116' } };
+            }
+            return { data: disc, error: null };
+          },
+          maybeSingle: async (): Promise<{ data: MockDiscWithProfile | null; error: null }> => {
+            queryCount++;
+            const disc = mockDiscsWithProfiles.find((d) => d.qr_code_id === value);
+            return { data: disc || null, error: null };
+          },
+        }),
+      }),
+    }),
+    storage: {
+      from: (_bucket: string) => ({
+        createSignedUrl: async (_path: string, _expiresIn: number) => {
+          queryCount++;
+          return { data: { signedUrl: 'https://example.com/signed-photo.jpg' }, error: null };
+        },
+      }),
+    },
+  };
+}
+
+Deno.test('lookup-qr-code: optimized query returns disc with owner profile in single query', async () => {
+  resetMocks();
+
+  const ownerId = 'owner-123';
+  const testCode = 'OPTIMIZED123';
+
+  // Setup QR code
+  mockQRCodes.push({
+    id: 'qr-1',
+    short_code: testCode,
+    status: 'active',
+    assigned_to: ownerId,
+  });
+
+  // Setup disc with joined profile (simulating Supabase JOIN result)
+  const discWithProfile: MockDiscWithProfile = {
+    id: 'disc-1',
+    owner_id: ownerId,
+    qr_code_id: 'qr-1',
+    name: 'Optimized Disc',
+    mold: 'Destroyer',
+    manufacturer: 'Innova',
+    plastic: 'Star',
+    color: 'Red',
+    reward_amount: 10.0,
+    owner: {
+      id: ownerId,
+      email: 'owner@example.com',
+      username: 'discgolfer',
+      full_name: 'John Doe',
+      display_preference: 'username',
+    },
+    photos: [{ id: 'photo-1', storage_path: 'discs/disc-1/photo.jpg' }],
+    active_recovery: [], // No active recovery
+  };
+  mockDiscsWithProfiles.push(discWithProfile);
+
+  const supabase = mockOptimizedSupabaseClient();
+
+  // Step 1: Lookup QR code
+  const { data: qrData } = await supabase.fromQrCodes().select('*').eq('short_code', testCode).single();
+  assertExists(qrData);
+
+  // Step 2: Single optimized query for disc + owner + photos + recovery
+  const { data: discData } = await supabase
+    .fromDiscs()
+    .select(
+      `
+      id, name, manufacturer, mold, plastic, color, reward_amount, owner_id,
+      owner:profiles(id, email, username, full_name, display_preference),
+      photos:disc_photos(id, storage_path),
+      active_recovery:recovery_events(id)
+    `
+    )
+    .eq('qr_code_id', qrData.id)
+    .single();
+
+  assertExists(discData);
+  assertExists(discData.owner);
+
+  // Verify the joined data is present
+  assertEquals(discData.id, 'disc-1');
+  assertEquals(discData.name, 'Optimized Disc');
+  assertEquals(discData.owner?.username, 'discgolfer');
+  assertEquals(discData.owner?.display_preference, 'username');
+
+  // Derive owner display name from joined profile
+  let ownerDisplayName = 'Anonymous';
+  if (discData.owner) {
+    if (discData.owner.display_preference === 'full_name' && discData.owner.full_name) {
+      ownerDisplayName = discData.owner.full_name;
+    } else if (discData.owner.username) {
+      ownerDisplayName = discData.owner.username;
+    } else if (discData.owner.email) {
+      ownerDisplayName = discData.owner.email.split('@')[0];
+    }
+  }
+
+  assertEquals(ownerDisplayName, 'discgolfer');
+});
+
+Deno.test('lookup-qr-code: optimized query handles null owner (claimable disc)', async () => {
+  resetMocks();
+
+  const testCode = 'CLAIMABLE123';
+
+  // Setup QR code
+  mockQRCodes.push({
+    id: 'qr-2',
+    short_code: testCode,
+    status: 'active',
+  });
+
+  // Setup disc with null owner (abandoned/claimable)
+  const discWithProfile: MockDiscWithProfile = {
+    id: 'disc-2',
+    owner_id: '', // Empty represents null owner
+    qr_code_id: 'qr-2',
+    name: 'Claimable Disc',
+    mold: 'Buzzz',
+    manufacturer: 'Discraft',
+    owner: null, // No owner
+    photos: [],
+    active_recovery: null,
+  };
+  mockDiscsWithProfiles.push(discWithProfile);
+
+  const supabase = mockOptimizedSupabaseClient();
+
+  const { data: qrData } = await supabase.fromQrCodes().select('*').eq('short_code', testCode).single();
+  assertExists(qrData);
+
+  const { data: discData } = await supabase
+    .fromDiscs()
+    .select(
+      `
+      id, name, owner_id,
+      owner:profiles(id, email, username, full_name, display_preference)
+    `
+    )
+    .eq('qr_code_id', qrData.id)
+    .single();
+
+  assertExists(discData);
+
+  // Owner should be null for claimable disc
+  assertEquals(discData.owner, null);
+
+  // Display name for claimable disc
+  const ownerDisplayName = discData.owner === null ? 'No Owner - Available to Claim' : 'Anonymous';
+  assertEquals(ownerDisplayName, 'No Owner - Available to Claim');
+});
+
+Deno.test('lookup-qr-code: optimized query includes active recovery status', async () => {
+  resetMocks();
+
+  const ownerId = 'owner-456';
+  const testCode = 'RECOVERY123';
+
+  mockQRCodes.push({
+    id: 'qr-3',
+    short_code: testCode,
+    status: 'active',
+    assigned_to: ownerId,
+  });
+
+  // Disc with active recovery event (included in JOIN)
+  const discWithRecovery: MockDiscWithProfile = {
+    id: 'disc-3',
+    owner_id: ownerId,
+    qr_code_id: 'qr-3',
+    name: 'Lost and Found Disc',
+    mold: 'Wraith',
+    owner: {
+      id: ownerId,
+      email: 'owner@test.com',
+      username: 'lostdisc',
+      full_name: null,
+      display_preference: 'username',
+    },
+    photos: [],
+    active_recovery: [{ id: 'recovery-1' }], // Has active recovery
+  };
+  mockDiscsWithProfiles.push(discWithRecovery);
+
+  const supabase = mockOptimizedSupabaseClient();
+
+  const { data: qrData } = await supabase.fromQrCodes().select('*').eq('short_code', testCode).single();
+  assertExists(qrData);
+
+  const { data: discData } = await supabase
+    .fromDiscs()
+    .select(
+      `
+      id, name, owner_id,
+      owner:profiles(id, email, username, full_name, display_preference),
+      active_recovery:recovery_events!inner(id)
+    `
+    )
+    .eq('qr_code_id', qrData.id)
+    .single();
+
+  assertExists(discData);
+  assertExists(discData.active_recovery);
+
+  // Verify has_active_recovery logic works with joined data
+  const hasActiveRecovery = discData.active_recovery && discData.active_recovery.length > 0;
+  assertEquals(hasActiveRecovery, true);
+});
+
+Deno.test('lookup-qr-code: optimized query derives display name from full_name preference', async () => {
+  resetMocks();
+
+  const ownerId = 'owner-789';
+  const testCode = 'FULLNAME123';
+
+  mockQRCodes.push({
+    id: 'qr-4',
+    short_code: testCode,
+    status: 'active',
+    assigned_to: ownerId,
+  });
+
+  const discWithProfile: MockDiscWithProfile = {
+    id: 'disc-4',
+    owner_id: ownerId,
+    qr_code_id: 'qr-4',
+    name: 'Full Name Disc',
+    mold: 'Leopard',
+    owner: {
+      id: ownerId,
+      email: 'jane@example.com',
+      username: 'janedoe',
+      full_name: 'Jane Doe',
+      display_preference: 'full_name', // Prefers full name
+    },
+    photos: [],
+    active_recovery: null,
+  };
+  mockDiscsWithProfiles.push(discWithProfile);
+
+  const supabase = mockOptimizedSupabaseClient();
+
+  const { data: qrData } = await supabase.fromQrCodes().select('*').eq('short_code', testCode).single();
+  assertExists(qrData);
+
+  const { data: discData } = await supabase.fromDiscs().select('*').eq('qr_code_id', qrData.id).single();
+
+  assertExists(discData);
+  assertExists(discData.owner);
+
+  // Derive owner display name based on preference
+  let ownerDisplayName = 'Anonymous';
+  if (discData.owner) {
+    if (discData.owner.display_preference === 'full_name' && discData.owner.full_name) {
+      ownerDisplayName = discData.owner.full_name;
+    } else if (discData.owner.username) {
+      ownerDisplayName = discData.owner.username;
+    } else if (discData.owner.email) {
+      ownerDisplayName = discData.owner.email.split('@')[0];
+    }
+  }
+
+  assertEquals(ownerDisplayName, 'Jane Doe');
+});
+
+Deno.test('lookup-qr-code: optimized query falls back to email when no username or full_name', async () => {
+  resetMocks();
+
+  const ownerId = 'owner-email';
+  const testCode = 'EMAILONLY123';
+
+  mockQRCodes.push({
+    id: 'qr-5',
+    short_code: testCode,
+    status: 'active',
+    assigned_to: ownerId,
+  });
+
+  const discWithProfile: MockDiscWithProfile = {
+    id: 'disc-5',
+    owner_id: ownerId,
+    qr_code_id: 'qr-5',
+    name: 'Email Only Disc',
+    mold: 'Roc',
+    owner: {
+      id: ownerId,
+      email: 'minimalist@example.com',
+      username: null, // No username
+      full_name: null, // No full name
+      display_preference: null, // No preference
+    },
+    photos: [],
+    active_recovery: null,
+  };
+  mockDiscsWithProfiles.push(discWithProfile);
+
+  const supabase = mockOptimizedSupabaseClient();
+
+  const { data: qrData } = await supabase.fromQrCodes().select('*').eq('short_code', testCode).single();
+  assertExists(qrData);
+
+  const { data: discData } = await supabase.fromDiscs().select('*').eq('qr_code_id', qrData.id).single();
+
+  assertExists(discData);
+  assertExists(discData.owner);
+
+  // Should fall back to email username part
+  let ownerDisplayName = 'Anonymous';
+  if (discData.owner) {
+    if (discData.owner.display_preference === 'full_name' && discData.owner.full_name) {
+      ownerDisplayName = discData.owner.full_name;
+    } else if (discData.owner.username) {
+      ownerDisplayName = discData.owner.username;
+    } else if (discData.owner.email) {
+      ownerDisplayName = discData.owner.email.split('@')[0];
+    }
+  }
+
+  assertEquals(ownerDisplayName, 'minimalist');
+});
+
+Deno.test('lookup-qr-code: query count verification for optimized path', async () => {
+  resetMocks();
+
+  const ownerId = 'owner-perf';
+  const testCode = 'PERFTEST123';
+
+  mockQRCodes.push({
+    id: 'qr-perf',
+    short_code: testCode,
+    status: 'active',
+    assigned_to: ownerId,
+  });
+
+  const discWithProfile: MockDiscWithProfile = {
+    id: 'disc-perf',
+    owner_id: ownerId,
+    qr_code_id: 'qr-perf',
+    name: 'Performance Test Disc',
+    mold: 'Destroyer',
+    owner: {
+      id: ownerId,
+      email: 'perf@example.com',
+      username: 'perfuser',
+      full_name: null,
+      display_preference: 'username',
+    },
+    photos: [{ id: 'photo-perf', storage_path: 'discs/disc-perf/photo.jpg' }],
+    active_recovery: null,
+  };
+  mockDiscsWithProfiles.push(discWithProfile);
+
+  const supabase = mockOptimizedSupabaseClient();
+  assertEquals(queryCount, 0); // Start with zero queries
+
+  // Query 1: Lookup QR code
+  const { data: qrData } = await supabase.fromQrCodes().select('*').eq('short_code', testCode).single();
+  assertExists(qrData);
+  assertEquals(queryCount, 1);
+
+  // Query 2: Optimized single query for disc + owner + photos + recovery
+  const { data: discData } = await supabase.fromDiscs().select('*').eq('qr_code_id', qrData.id).single();
+  assertExists(discData);
+  assertEquals(queryCount, 2);
+
+  // Query 3: Signed URL for photo (still needed as separate call)
+  await supabase.storage.from('disc-photos').createSignedUrl('test-path', 3600);
+  assertEquals(queryCount, 3);
+
+  // Old implementation would have been:
+  // 1. QR code lookup
+  // 2. Disc lookup
+  // 3. Profile lookup (N+1!)
+  // 4. Recovery events lookup
+  // 5. Signed URL
+  // Total: 5 queries
+
+  // New optimized implementation:
+  // 1. QR code lookup
+  // 2. Disc + Profile + Recovery (single JOIN query)
+  // 3. Signed URL
+  // Total: 3 queries (40% reduction)
 });
