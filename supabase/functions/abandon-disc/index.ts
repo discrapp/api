@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { abandonDiscTransaction } from '../_shared/transactions.ts';
 
 /**
  * Abandon Disc Function
@@ -132,35 +133,20 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Update recovery status to abandoned (using user's JWT for RLS)
-  const { error: updateRecoveryError } = await supabase
-    .from('recovery_events')
-    .update({
-      status: 'abandoned',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', recovery_event_id);
+  // Use transaction to atomically update recovery status AND clear disc owner
+  // This ensures both operations succeed or both fail together
+  const transactionResult = await abandonDiscTransaction(supabaseAdmin, {
+    recoveryEventId: recovery_event_id,
+    discId: disc.id,
+    userId: user.id,
+  });
 
-  if (updateRecoveryError) {
-    console.error('Failed to update recovery status:', updateRecoveryError);
-    return new Response(JSON.stringify({ error: 'Failed to abandon disc', details: updateRecoveryError.message }), {
+  if (!transactionResult.success) {
+    console.error('Failed to abandon disc:', transactionResult.error);
+    return new Response(JSON.stringify({ error: 'Failed to abandon disc', details: transactionResult.error }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
-  }
-
-  // Set disc owner_id to null (making it claimable) using user's JWT for RLS
-  const { error: updateDiscError } = await supabase
-    .from('discs')
-    .update({
-      owner_id: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', disc.id);
-
-  if (updateDiscError) {
-    console.error('Failed to update disc owner:', updateDiscError);
-    // Don't fail the request - the recovery was updated successfully
   }
 
   // Notify the finder
