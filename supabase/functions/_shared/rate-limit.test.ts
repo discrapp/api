@@ -248,3 +248,83 @@ Deno.test('RateLimiter: should handle edge case of maxRequests = 1', () => {
   const result2 = limiter.check(key);
   assertEquals(result2.allowed, false);
 });
+
+Deno.test('checkRateLimit: should extract IP from cf-connecting-ip header', () => {
+  const limiter = new RateLimiter(testConfig);
+  const req = new Request('https://example.com', {
+    headers: {
+      'cf-connecting-ip': '203.0.113.50',
+    },
+  });
+
+  const result = checkRateLimit(req, limiter);
+  assertEquals(result.allowed, true);
+  const result2 = checkRateLimit(req, limiter);
+  assertEquals(result2.remaining, 3);
+});
+
+Deno.test('checkRateLimit: should fallback to IP when custom extractor returns null', () => {
+  const limiter = new RateLimiter(testConfig);
+  const req = new Request('https://example.com', {
+    headers: {
+      'x-real-ip': '10.20.30.40',
+    },
+  });
+
+  const nullExtractor = (_r: Request) => null;
+  const result = checkRateLimit(req, limiter, nullExtractor);
+  assertEquals(result.allowed, true);
+});
+
+Deno.test('checkRateLimit: should handle empty x-forwarded-for', () => {
+  const limiter = new RateLimiter(testConfig);
+  const req = new Request('https://example.com', {
+    headers: {
+      'x-forwarded-for': '',
+    },
+  });
+
+  const result = checkRateLimit(req, limiter);
+  assertEquals(result.allowed, true);
+});
+
+Deno.test('checkRateLimit: should handle x-forwarded-for with empty first IP', () => {
+  const limiter = new RateLimiter(testConfig);
+  const req = new Request('https://example.com', {
+    headers: {
+      'x-forwarded-for': ', 10.0.0.1',
+      'x-real-ip': '192.168.1.1',
+    },
+  });
+
+  const result = checkRateLimit(req, limiter);
+  assertEquals(result.allowed, true);
+});
+
+Deno.test('RateLimiter: should trigger cleanup when cleanupInterval has passed', async () => {
+  const shortWindowConfig: RateLimitConfig = {
+    windowMs: 50,
+    maxRequests: 10,
+  };
+  const limiter = new RateLimiter(shortWindowConfig);
+
+  // Create multiple entries
+  limiter.check('cleanup-test-1');
+  limiter.check('cleanup-test-2');
+  limiter.check('cleanup-test-3');
+
+  // Verify entries were created
+  assertEquals(limiter._getEntryCount(), 3);
+
+  // Wait for window to expire
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Force cleanup interval to trigger on next check
+  limiter._forceCleanup();
+
+  // This check should trigger cleanup of expired entries
+  limiter.check('new-entry');
+
+  // Old entries should be cleaned up, only new entry remains
+  assertEquals(limiter._getEntryCount(), 1);
+});

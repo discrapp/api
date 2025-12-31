@@ -141,6 +141,22 @@ export class RateLimiter {
       }
     }
   }
+
+  /**
+   * Force cleanup to run. For testing purposes only.
+   * @internal
+   */
+  _forceCleanup(): void {
+    this.lastCleanup = 0; // Reset so next check triggers cleanup
+  }
+
+  /**
+   * Get entry count for testing. For testing purposes only.
+   * @internal
+   */
+  _getEntryCount(): number {
+    return this.entries.size;
+  }
 }
 
 /**
