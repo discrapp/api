@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
+import { claimDiscTransaction } from '../_shared/transactions.ts';
 
 /**
  * Claim Disc Function
@@ -82,8 +83,8 @@ const handler = async (req: Request): Promise<Response> => {
   // Set Sentry user context
   setUser(user.id);
 
-  // Service role client only for operations that need to bypass RLS (not used in this function currently)
-  const _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  // Service role client for transaction operations
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   // Get the disc (using user's JWT for RLS)
   const { data: disc, error: discError } = await supabase
@@ -107,39 +108,24 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Set disc owner_id to the claiming user (using user's JWT for RLS)
-  const { error: updateError } = await supabase
-    .from('discs')
-    .update({
-      owner_id: user.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', disc_id);
+  // Use transaction to atomically set disc owner AND close abandoned recoveries
+  // This ensures both operations succeed or both fail together
+  const transactionResult = await claimDiscTransaction(supabaseAdmin, {
+    discId: disc_id,
+    userId: user.id,
+  });
 
-  if (updateError) {
-    console.error('Failed to claim disc:', updateError);
-    captureException(updateError, { operation: 'claim-disc', discId: disc_id, userId: user.id });
-    return new Response(JSON.stringify({ error: 'Failed to claim disc', details: updateError.message }), {
+  if (!transactionResult.success) {
+    console.error('Failed to claim disc:', transactionResult.error);
+    captureException(new Error(transactionResult.error), {
+      operation: 'claim-disc',
+      discId: disc_id,
+      userId: user.id,
+    });
+    return new Response(JSON.stringify({ error: 'Failed to claim disc', details: transactionResult.error }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
-  }
-
-  // Close any abandoned recovery events for this disc (using user's JWT for RLS)
-  const { error: closeRecoveryError } = await supabase
-    .from('recovery_events')
-    .update({
-      status: 'recovered',
-      recovered_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('disc_id', disc_id)
-    .eq('status', 'abandoned');
-
-  if (closeRecoveryError) {
-    console.error('Failed to close recovery events:', closeRecoveryError);
-    captureException(closeRecoveryError, { operation: 'close-recovery-events', discId: disc_id });
-    // Don't fail - the disc was claimed successfully
   }
 
   return new Response(
