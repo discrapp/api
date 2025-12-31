@@ -21,12 +21,7 @@
  *   }
  */
 
-import {
-  initSentrySDK,
-  isSentryConfigured,
-  sendToSentry,
-  setSentryUser,
-} from './sentry-integration.ts';
+import { initSentrySDK, isSentryConfigured, sendToSentry, setSentryUser } from './sentry-integration.ts';
 
 // Allow dependency injection for testing
 export interface SentryIntegration {
