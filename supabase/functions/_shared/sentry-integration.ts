@@ -14,8 +14,22 @@
  */
 
 // Note: We use dynamic import to avoid loading Sentry when DSN is not set
+// These module-level variables are intentionally used for initialization caching
+// in Deno edge functions. They persist across warm starts, which is desirable
+// for avoiding re-initialization overhead.
 let Sentry: typeof import('npm:@sentry/node') | null = null;
 let initialized = false;
+
+/**
+ * Reset the Sentry integration state.
+ * This is primarily for testing to ensure clean state between tests.
+ * In production, this should rarely if ever be called.
+ * @internal
+ */
+export function _resetSentryState(): void {
+  Sentry = null;
+  initialized = false;
+}
 
 /**
  * Initialize the Sentry SDK.
@@ -45,10 +59,7 @@ export async function initSentrySDK(): Promise<void> {
  * Send an exception to Sentry.
  * Only called when Sentry is initialized.
  */
-export function sendToSentry(
-  error: Error | unknown,
-  context?: Record<string, unknown>
-): void {
+export function sendToSentry(error: Error | unknown, context?: Record<string, unknown>): void {
   const sentryDsn = Deno.env.get('SENTRY_DSN');
   if (!Sentry || !sentryDsn) {
     return;

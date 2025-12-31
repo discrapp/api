@@ -1,7 +1,21 @@
 import { ImageMagick, initializeImageMagick, MagickFormat, MagickGeometry } from 'npm:@imagemagick/magick-wasm@0.0.30';
 
 // Initialize ImageMagick WASM - must be called before using ImageMagick
+// This module-level variable is intentionally used for initialization caching
+// in Deno edge functions. It persists across warm starts, which is desirable
+// for avoiding expensive WASM re-initialization overhead.
 let initialized = false;
+
+/**
+ * Reset the image compression state.
+ * This is primarily for testing to ensure clean state between tests.
+ * In production, this should rarely if ever be called as WASM
+ * initialization is expensive.
+ * @internal
+ */
+export function _resetImageCompressionState(): void {
+  initialized = false;
+}
 
 async function ensureInitialized(): Promise<void> {
   if (initialized) return;

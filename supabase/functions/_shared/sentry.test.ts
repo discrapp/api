@@ -236,3 +236,26 @@ Deno.test('integration functions called when configured (with mock)', async () =
     Deno.env.delete('SENTRY_DSN');
   }
 });
+
+Deno.test('_resetSentryState resets module-level state', async () => {
+  // Import the sentry-integration module to test the reset function
+  const sentryIntegration = await import('./sentry-integration.ts');
+
+  // Clear DSN to prevent actual Sentry initialization
+  Deno.env.delete('SENTRY_DSN');
+
+  // The reset function should exist and be callable
+  assertExists(sentryIntegration._resetSentryState, '_resetSentryState should be exported');
+  assertEquals(typeof sentryIntegration._resetSentryState, 'function');
+
+  // Call reset - should not throw
+  sentryIntegration._resetSentryState();
+
+  // After reset, isSentryConfigured should return false (no DSN set)
+  assertEquals(sentryIntegration.isSentryConfigured(), false);
+
+  // Restore env
+  if (originalSentryDsn) {
+    Deno.env.set('SENTRY_DSN', originalSentryDsn);
+  }
+});

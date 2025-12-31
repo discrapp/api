@@ -122,3 +122,18 @@ Deno.test('image-compression - profile photo uses lower size threshold', () => {
   assertEquals(profileMinSize < discMinSize, true);
   assertEquals(profileMinSize, 204800);
 });
+
+Deno.test('image-compression - _resetImageCompressionState resets module-level state', async () => {
+  // Import the module to test the reset function
+  const imageCompression = await import('./image-compression.ts');
+
+  // The reset function should exist and be callable
+  assertExists(imageCompression._resetImageCompressionState, '_resetImageCompressionState should be exported');
+  assertEquals(typeof imageCompression._resetImageCompressionState, 'function');
+
+  // Call reset - should not throw
+  imageCompression._resetImageCompressionState();
+
+  // The function is primarily for testing cleanup and doesn't have
+  // observable external effects, but we verify it doesn't throw
+});
