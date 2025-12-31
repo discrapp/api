@@ -55,6 +55,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
+  // Create Supabase client with user's auth for RLS-protected operations
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -78,10 +79,11 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
+  // Service role client only for operations that need to bypass RLS (e.g., notifications to other users)
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Get the recovery event with disc info
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  // Get the recovery event with disc info (using user's JWT for RLS)
+  const { data: recovery, error: recoveryError } = await supabase
     .from('recovery_events')
     .select(
       `
@@ -130,8 +132,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Update recovery status to abandoned
-  const { error: updateRecoveryError } = await supabaseAdmin
+  // Update recovery status to abandoned (using user's JWT for RLS)
+  const { error: updateRecoveryError } = await supabase
     .from('recovery_events')
     .update({
       status: 'abandoned',
@@ -147,8 +149,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Set disc owner_id to null (making it claimable)
-  const { error: updateDiscError } = await supabaseAdmin
+  // Set disc owner_id to null (making it claimable) using user's JWT for RLS
+  const { error: updateDiscError } = await supabase
     .from('discs')
     .update({
       owner_id: null,

@@ -60,7 +60,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Create Supabase client with user's auth
+  // Create Supabase client with user's auth for RLS-protected operations
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -82,12 +82,12 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Use service role for database operations
+  // Service role client only for operations that need to bypass RLS (e.g., notifications to other users)
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Get the recovery event with disc and QR code info
-  const { data: recoveryEvent, error: recoveryError } = await supabaseAdmin
+  // Get the recovery event with disc and QR code info (using user's JWT for RLS)
+  const { data: recoveryEvent, error: recoveryError } = await supabase
     .from('recovery_events')
     .select(
       `
@@ -153,8 +153,8 @@ const handler = async (req: Request): Promise<Response> => {
   const finderId = recoveryEvent.finder_id;
   const now = new Date().toISOString();
 
-  // Update disc ownership to the finder
-  const { error: discUpdateError } = await supabaseAdmin
+  // Update disc ownership to the finder (using user's JWT for RLS)
+  const { error: discUpdateError } = await supabase
     .from('discs')
     .update({
       owner_id: finderId,
@@ -173,10 +173,10 @@ const handler = async (req: Request): Promise<Response> => {
     );
   }
 
-  // Update QR code assignment if disc has a QR code
+  // Update QR code assignment if disc has a QR code (using user's JWT for RLS)
   // Ensure status remains 'active' since the QR is still linked to the disc
   if (qrCodeId) {
-    const { error: qrUpdateError } = await supabaseAdmin
+    const { error: qrUpdateError } = await supabase
       .from('qr_codes')
       .update({
         assigned_to: finderId,
@@ -191,8 +191,8 @@ const handler = async (req: Request): Promise<Response> => {
     }
   }
 
-  // Update recovery event status to surrendered
-  const { data: updatedRecovery, error: recoveryUpdateError } = await supabaseAdmin
+  // Update recovery event status to surrendered (using user's JWT for RLS)
+  const { data: updatedRecovery, error: recoveryUpdateError } = await supabase
     .from('recovery_events')
     .update({
       status: 'surrendered',

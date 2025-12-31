@@ -61,7 +61,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Create Supabase client with user's auth
+  // Create Supabase client with user's auth for RLS-protected operations
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -83,12 +83,12 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Use service role for database operations
+  // Service role client only for operations that need to bypass RLS (e.g., notifications to other users)
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Get the meetup proposal with recovery event and disc info
-  const { data: proposal, error: proposalError } = await supabaseAdmin
+  // Get the meetup proposal with recovery event and disc info (using user's JWT for RLS)
+  const { data: proposal, error: proposalError } = await supabase
     .from('meetup_proposals')
     .select(
       `
@@ -191,8 +191,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Update the proposal status to accepted
-  const { data: updatedProposal, error: updateError } = await supabaseAdmin
+  // Update the proposal status to accepted (using user's JWT for RLS)
+  const { data: updatedProposal, error: updateError } = await supabase
     .from('meetup_proposals')
     .update({
       status: 'accepted',
@@ -209,8 +209,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Update recovery event status to 'meetup_confirmed'
-  const { error: eventUpdateError } = await supabaseAdmin
+  // Update recovery event status to 'meetup_confirmed' (using user's JWT for RLS)
+  const { error: eventUpdateError } = await supabase
     .from('recovery_events')
     .update({
       status: 'meetup_confirmed',

@@ -53,6 +53,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
+  // Create Supabase client with user's auth for RLS-protected operations
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -76,10 +77,11 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  // Service role client only for operations that need to bypass RLS (not used in this function currently)
+  const _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Get recovery event with disc info
-  const { data: recovery, error: recoveryError } = await supabaseAdmin
+  // Get recovery event with disc info (using user's JWT for RLS)
+  const { data: recovery, error: recoveryError } = await supabase
     .from('recovery_events')
     .select(
       `
@@ -148,9 +150,9 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Mark reward as paid
+  // Mark reward as paid (using user's JWT for RLS)
   const now = new Date().toISOString();
-  const { error: updateError } = await supabaseAdmin
+  const { error: updateError } = await supabase
     .from('recovery_events')
     .update({
       reward_paid_at: now,
