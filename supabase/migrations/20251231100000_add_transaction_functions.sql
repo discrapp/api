@@ -336,9 +336,9 @@ CREATE OR REPLACE FUNCTION public.propose_meetup_transaction(
   p_recovery_event_id UUID,
   p_proposed_by UUID,
   p_location_name TEXT,
+  p_proposed_datetime TIMESTAMPTZ,
   p_latitude DOUBLE PRECISION DEFAULT NULL,
   p_longitude DOUBLE PRECISION DEFAULT NULL,
-  p_proposed_datetime TIMESTAMPTZ,
   p_message TEXT DEFAULT NULL
 )
 RETURNS JSON
@@ -527,7 +527,7 @@ GRANT EXECUTE ON FUNCTION public.surrender_disc_transaction(UUID, UUID, UUID, UU
 GRANT EXECUTE ON FUNCTION public.relinquish_disc_transaction(UUID, UUID, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.create_drop_off_transaction(UUID, TEXT, DOUBLE PRECISION, DOUBLE PRECISION, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.accept_meetup_transaction(UUID, UUID) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.propose_meetup_transaction(UUID, UUID, TEXT, DOUBLE PRECISION, DOUBLE PRECISION, TIMESTAMPTZ, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.propose_meetup_transaction(UUID, UUID, TEXT, TIMESTAMPTZ, DOUBLE PRECISION, DOUBLE PRECISION, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.report_found_disc_transaction(UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.complete_recovery_transaction(UUID) TO authenticated;
 
