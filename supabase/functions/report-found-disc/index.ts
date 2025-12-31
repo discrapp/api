@@ -58,7 +58,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Create Supabase client with user's auth
+  // Create Supabase client with user's auth for RLS-protected operations
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -83,12 +83,12 @@ const handler = async (req: Request): Promise<Response> => {
   // Set Sentry user context
   setUser(user.id);
 
-  // Use service role for database operations (to bypass RLS for lookups)
+  // Service role client only for operations that need to bypass RLS (e.g., notifications to other users)
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Look up the QR code
-  const { data: qrCode, error: qrError } = await supabaseAdmin
+  // Look up the QR code (using user's JWT for RLS)
+  const { data: qrCode, error: qrError } = await supabase
     .from('qr_codes')
     .select('id, short_code, status')
     .eq('short_code', qr_code.toUpperCase())
@@ -109,8 +109,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Get the disc associated with this QR code
-  const { data: disc, error: discError } = await supabaseAdmin
+  // Get the disc associated with this QR code (using user's JWT for RLS)
+  const { data: disc, error: discError } = await supabase
     .from('discs')
     .select('id, owner_id, name')
     .eq('qr_code_id', qrCode.id)
@@ -131,8 +131,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Check for existing active recovery
-  const { data: activeRecovery } = await supabaseAdmin
+  // Check for existing active recovery (using user's JWT for RLS)
+  const { data: activeRecovery } = await supabase
     .from('recovery_events')
     .select('id, status')
     .eq('disc_id', disc.id)
@@ -153,8 +153,8 @@ const handler = async (req: Request): Promise<Response> => {
     );
   }
 
-  // Create the recovery event
-  const { data: recoveryEvent, error: createError } = await supabaseAdmin
+  // Create the recovery event (using user's JWT for RLS)
+  const { data: recoveryEvent, error: createError } = await supabase
     .from('recovery_events')
     .insert({
       disc_id: disc.id,

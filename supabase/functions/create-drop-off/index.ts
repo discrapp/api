@@ -69,7 +69,7 @@ const handler = async (req: Request): Promise<Response> => {
     );
   }
 
-  // Create Supabase client with user's auth
+  // Create Supabase client with user's auth for RLS-protected operations
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -91,12 +91,12 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Use service role for database operations
+  // Service role client only for operations that need to bypass RLS (e.g., notifications to other users)
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Get the recovery event with disc info
-  const { data: recoveryEvent, error: recoveryError } = await supabaseAdmin
+  // Get the recovery event with disc info (using user's JWT for RLS)
+  const { data: recoveryEvent, error: recoveryError } = await supabase
     .from('recovery_events')
     .select(
       `
@@ -133,8 +133,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Create the drop-off record
-  const { data: dropOff, error: createError } = await supabaseAdmin
+  // Create the drop-off record (using user's JWT for RLS)
+  const { data: dropOff, error: createError } = await supabase
     .from('drop_offs')
     .insert({
       recovery_event_id,
@@ -154,8 +154,8 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Update recovery event status to 'dropped_off'
-  const { error: updateError } = await supabaseAdmin
+  // Update recovery event status to 'dropped_off' (using user's JWT for RLS)
+  const { error: updateError } = await supabase
     .from('recovery_events')
     .update({ status: 'dropped_off', updated_at: new Date().toISOString() })
     .eq('id', recovery_event_id);
