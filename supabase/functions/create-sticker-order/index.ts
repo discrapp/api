@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@14.21.0';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { withRateLimit, RateLimitPresets } from '../_shared/with-rate-limit.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
 
 /**
@@ -399,4 +400,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-Deno.serve(withSentry(handler));
+Deno.serve(withSentry(withRateLimit(handler, RateLimitPresets.expensive)));

@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
 import { fetchDisplayName } from '../_shared/display-name.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { withRateLimit, RateLimitPresets } from '../_shared/with-rate-limit.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
 
 /**
@@ -231,4 +232,4 @@ const handler = async (req: Request): Promise<Response> => {
   );
 };
 
-Deno.serve(withSentry(handler));
+Deno.serve(withSentry(withRateLimit(handler, RateLimitPresets.standard)));

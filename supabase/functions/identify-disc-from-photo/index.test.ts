@@ -1,4 +1,5 @@
 import { assertEquals, assertExists } from 'jsr:@std/assert';
+import { RateLimitPresets } from '../_shared/with-rate-limit.ts';
 
 // Mock data types
 interface MockUser {
@@ -483,4 +484,11 @@ Deno.test('identify-disc-from-photo: should return 405 for non-POST requests', a
     const body = await response.json();
     assertEquals(body.error, 'Method not allowed');
   }
+});
+
+// Rate limiting tests
+Deno.test('identify-disc-from-photo: should use expensive rate limit preset (2 per minute)', () => {
+  // Verify the correct preset is configured for this expensive Claude API endpoint
+  assertEquals(RateLimitPresets.expensive.maxRequests, 2);
+  assertEquals(RateLimitPresets.expensive.windowMs, 60000);
 });
