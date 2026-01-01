@@ -314,6 +314,22 @@ Deno.test('CreateStickerOrderSchema - rejects non-integer quantity', () => {
   assertEquals(result.success, false);
 });
 
+Deno.test('CreateStickerOrderSchema - accepts order with both address options', () => {
+  const validOrder = {
+    quantity: 5,
+    shipping_address_id: VALID_UUID,
+    shipping_address: {
+      name: 'John Doe',
+      street_address: '123 Main St',
+      city: 'Portland',
+      state: 'OR',
+      postal_code: '97201',
+    },
+  };
+  const result = CreateStickerOrderSchema.safeParse(validOrder);
+  assertEquals(result.success, true);
+});
+
 // =============================================================================
 // ProposeMeetupSchema Tests
 // =============================================================================
@@ -703,6 +719,23 @@ Deno.test('DismissNotificationSchema - rejects empty request', () => {
   assertEquals(result.success, false);
 });
 
+Deno.test('DismissNotificationSchema - rejects dismiss_all false without notification_id', () => {
+  const invalidRequest = {
+    dismiss_all: false,
+  };
+  const result = DismissNotificationSchema.safeParse(invalidRequest);
+  assertEquals(result.success, false);
+});
+
+Deno.test('DismissNotificationSchema - accepts both notification_id and dismiss_all', () => {
+  const validRequest = {
+    notification_id: VALID_UUID,
+    dismiss_all: true,
+  };
+  const result = DismissNotificationSchema.safeParse(validRequest);
+  assertEquals(result.success, true);
+});
+
 // =============================================================================
 // MarkNotificationReadSchema Tests
 // =============================================================================
@@ -727,6 +760,23 @@ Deno.test('MarkNotificationReadSchema - rejects empty request', () => {
   const invalidRequest = {};
   const result = MarkNotificationReadSchema.safeParse(invalidRequest);
   assertEquals(result.success, false);
+});
+
+Deno.test('MarkNotificationReadSchema - rejects mark_all false without notification_id', () => {
+  const invalidRequest = {
+    mark_all: false,
+  };
+  const result = MarkNotificationReadSchema.safeParse(invalidRequest);
+  assertEquals(result.success, false);
+});
+
+Deno.test('MarkNotificationReadSchema - accepts both notification_id and mark_all', () => {
+  const validRequest = {
+    notification_id: VALID_UUID,
+    mark_all: true,
+  };
+  const result = MarkNotificationReadSchema.safeParse(validRequest);
+  assertEquals(result.success, true);
 });
 
 // =============================================================================
@@ -856,6 +906,16 @@ Deno.test('formatZodError - formats multiple errors', () => {
   if (!result.success) {
     const message = formatZodError(result.error);
     assertEquals(message.includes(';'), true); // Multiple errors separated by ;
+  }
+});
+
+Deno.test('formatZodError - formats error with empty path (refine error)', () => {
+  // Refine errors have empty path
+  const result = CreateStickerOrderSchema.safeParse({ quantity: 5 });
+  if (!result.success) {
+    const message = formatZodError(result.error);
+    // Should not have a path prefix for refine errors
+    assertEquals(message.includes('Either shipping_address_id or shipping_address is required'), true);
   }
 });
 
