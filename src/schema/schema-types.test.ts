@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import type { Profile, NewProfile } from './profiles';
 import type { QrCode, NewQrCode } from './qr-codes';
 import type { Disc, NewDisc } from './discs';

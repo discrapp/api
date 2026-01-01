@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { qrCodes, QrCodeStatus } from './qr-codes';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 

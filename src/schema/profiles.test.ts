@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { profiles } from './profiles';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 

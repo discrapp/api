@@ -7,8 +7,8 @@ one.
 
 ## Testing Stack
 
-- **Framework:** Vitest
-- **Coverage:** c8 (built into Vitest with v8 provider)
+- **Framework:** Jest (with ts-jest for TypeScript ESM support)
+- **Coverage:** V8 (built into Jest)
 - **CI/CD:** GitHub Actions with coverage enforcement
 
 ## Coverage Requirements
@@ -69,7 +69,6 @@ src/
 Test the structure and constraints of database tables:
 
 ```typescript
-import { describe, it, expect } from 'vitest';
 import { myTable } from './my-table';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 
@@ -278,8 +277,12 @@ Add to `.vscode/launch.json`:
   "type": "node",
   "request": "launch",
   "name": "Debug Tests",
-  "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/vitest",
-  "runtimeArgs": ["run", "--reporter=verbose"],
+  "runtimeExecutable": "node",
+  "runtimeArgs": [
+    "--experimental-vm-modules",
+    "${workspaceFolder}/node_modules/jest/bin/jest.js",
+    "--runInBand"
+  ],
   "console": "integratedTerminal"
 }
 ```

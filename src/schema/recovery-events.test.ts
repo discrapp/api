@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { recoveryEvents, RecoveryEventStatus } from './recovery-events';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 
