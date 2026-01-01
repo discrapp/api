@@ -188,25 +188,30 @@ const handler = async (req: Request): Promise<Response> => {
 
       console.log(`Order ${updatedOrder.order_number} marked as paid`);
 
-      // Chain the order fulfillment flow
+      // Run fulfillment operations in parallel for better performance
+      // - Fulfillment chain (QR -> PDF -> Printer) runs sequentially within
+      // - Order confirmation runs in parallel with the fulfillment chain
+      // Using Promise.allSettled ensures one failure doesn't break others
       const functionsUrl = `${supabaseUrl}/functions/v1`;
 
-      // Step 1: Generate QR codes
-      console.log('Triggering QR code generation...');
-      const qrResponse = await fetch(`${functionsUrl}/generate-order-qr-codes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${supabaseServiceKey}`,
-        },
-        body: JSON.stringify({ order_id: orderId }),
-      });
+      const fulfillmentChain = async (): Promise<void> => {
+        // Step 1: Generate QR codes
+        console.log('Triggering QR code generation...');
+        const qrResponse = await fetch(`${functionsUrl}/generate-order-qr-codes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({ order_id: orderId }),
+        });
 
-      if (!qrResponse.ok) {
-        const qrError = await qrResponse.json();
-        console.error('Failed to generate QR codes:', qrError);
-        // Continue anyway - order is paid, QR generation can be retried
-      } else {
+        if (!qrResponse.ok) {
+          const qrError = await qrResponse.json();
+          console.error('Failed to generate QR codes:', qrError);
+          // Don't continue chain - QR codes are required for PDF
+          return;
+        }
         console.log('QR codes generated successfully');
 
         // Step 2: Generate PDF
@@ -223,13 +228,34 @@ const handler = async (req: Request): Promise<Response> => {
         if (!pdfResponse.ok) {
           const pdfError = await pdfResponse.json();
           console.error('Failed to generate PDF:', pdfError);
-          // Continue anyway - QR codes exist, PDF can be retried
-        } else {
-          console.log('PDF generated successfully');
+          // Don't continue chain - PDF is required for printer notification
+          return;
+        }
+        console.log('PDF generated successfully');
 
-          // Step 3: Send printer notification
-          console.log('Sending printer notification...');
-          const emailResponse = await fetch(`${functionsUrl}/send-printer-notification`, {
+        // Step 3: Send printer notification
+        console.log('Sending printer notification...');
+        const emailResponse = await fetch(`${functionsUrl}/send-printer-notification`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({ order_id: orderId }),
+        });
+
+        if (!emailResponse.ok) {
+          const emailError = await emailResponse.json();
+          console.error('Failed to send printer notification:', emailError);
+        } else {
+          console.log('Printer notification sent successfully');
+        }
+      };
+
+      const orderConfirmation = async (): Promise<void> => {
+        console.log('Sending order confirmation to user...');
+        try {
+          const res = await fetch(`${functionsUrl}/send-order-confirmation`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -238,33 +264,20 @@ const handler = async (req: Request): Promise<Response> => {
             body: JSON.stringify({ order_id: orderId }),
           });
 
-          if (!emailResponse.ok) {
-            const emailError = await emailResponse.json();
-            console.error('Failed to send printer notification:', emailError);
-          } else {
-            console.log('Printer notification sent successfully');
-          }
-        }
-      }
-
-      // Send confirmation email to user (fire and forget - don't block on this)
-      console.log('Sending order confirmation to user...');
-      fetch(`${functionsUrl}/send-order-confirmation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${supabaseServiceKey}`,
-        },
-        body: JSON.stringify({ order_id: orderId }),
-      })
-        .then((res) => {
           if (res.ok) {
             console.log('Order confirmation sent to user');
           } else {
             console.error('Failed to send order confirmation');
           }
-        })
-        .catch((err) => console.error('Error sending order confirmation:', err));
+        } catch (err) {
+          console.error('Error sending order confirmation:', err);
+        }
+      };
+
+      // Run both operations in parallel - neither blocks the other
+      // Promise.allSettled ensures we wait for both to complete and
+      // one failure doesn't prevent the other from completing
+      await Promise.allSettled([fulfillmentChain(), orderConfirmation()]);
 
       break;
     }

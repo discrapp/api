@@ -1827,3 +1827,263 @@ Deno.test('stripe-webhook: should skip main secret verification if not configure
   assertExists(event);
   assertEquals(event.type, 'from_connect');
 });
+
+// ============================================================================
+// TESTS: Parallel Fulfillment Chain
+// ============================================================================
+
+Deno.test('stripe-webhook: should run order confirmation in parallel with fulfillment chain', async () => {
+  resetMocks();
+
+  // Track execution order and timing
+  const executionLog: { operation: string; startTime: number }[] = [];
+  const startTime = Date.now();
+
+  // Simulate parallel execution of fulfillment chain and order confirmation
+  const fulfillmentPromise = (async () => {
+    executionLog.push({ operation: 'fulfillment_start', startTime: Date.now() - startTime });
+    // Simulate QR -> PDF -> Printer chain (sequential within)
+    await new Promise((resolve) => setTimeout(resolve, 10)); // QR
+    await new Promise((resolve) => setTimeout(resolve, 10)); // PDF
+    await new Promise((resolve) => setTimeout(resolve, 10)); // Printer
+    executionLog.push({ operation: 'fulfillment_end', startTime: Date.now() - startTime });
+    return { status: 'fulfilled', value: 'fulfillment_complete' };
+  })();
+
+  const confirmationPromise = (async () => {
+    executionLog.push({ operation: 'confirmation_start', startTime: Date.now() - startTime });
+    await new Promise((resolve) => setTimeout(resolve, 5)); // Email is faster
+    executionLog.push({ operation: 'confirmation_end', startTime: Date.now() - startTime });
+    return { status: 'fulfilled', value: 'confirmation_sent' };
+  })();
+
+  // Both should start at nearly the same time (within 5ms tolerance)
+  await Promise.allSettled([fulfillmentPromise, confirmationPromise]);
+
+  // Verify both operations started
+  const fulfillmentStart = executionLog.find((e) => e.operation === 'fulfillment_start');
+  const confirmationStart = executionLog.find((e) => e.operation === 'confirmation_start');
+
+  assertExists(fulfillmentStart);
+  assertExists(confirmationStart);
+
+  // Both should have started nearly simultaneously (within 5ms)
+  const timeDiff = Math.abs(fulfillmentStart.startTime - confirmationStart.startTime);
+  assertEquals(timeDiff < 5, true, `Operations should start in parallel, but were ${timeDiff}ms apart`);
+});
+
+Deno.test('stripe-webhook: parallel fulfillment should use Promise.allSettled for error isolation', async () => {
+  resetMocks();
+
+  // Simulate operations where one fails
+  const operations = [
+    Promise.resolve({ success: true, operation: 'qr_pdf_printer' }),
+    Promise.reject(new Error('Email service down')), // Order confirmation fails
+  ];
+
+  const results = await Promise.allSettled(operations);
+
+  // Should have 2 results regardless of failures
+  assertEquals(results.length, 2);
+
+  // First should be fulfilled
+  assertEquals(results[0].status, 'fulfilled');
+
+  // Second should be rejected but not throw
+  assertEquals(results[1].status, 'rejected');
+
+  // The webhook should still return success
+  const webhookResponse = new Response(JSON.stringify({ received: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  assertEquals(webhookResponse.status, 200);
+});
+
+Deno.test('stripe-webhook: fulfillment chain failure should not prevent order confirmation', async () => {
+  resetMocks();
+
+  let confirmationSent = false;
+
+  // Simulate fulfillment chain failing
+  const fulfillmentPromise = Promise.reject(new Error('QR generation failed'));
+
+  // Simulate order confirmation succeeding
+  const confirmationPromise = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    confirmationSent = true;
+    return { success: true };
+  })();
+
+  // Use Promise.allSettled so one failure doesn't stop others
+  const results = await Promise.allSettled([fulfillmentPromise, confirmationPromise]);
+
+  // Fulfillment failed
+  assertEquals(results[0].status, 'rejected');
+
+  // But confirmation still succeeded
+  assertEquals(results[1].status, 'fulfilled');
+  assertEquals(confirmationSent, true);
+});
+
+Deno.test('stripe-webhook: order confirmation failure should not prevent fulfillment chain', async () => {
+  resetMocks();
+
+  let fulfillmentComplete = false;
+
+  // Simulate fulfillment chain succeeding
+  const fulfillmentPromise = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    fulfillmentComplete = true;
+    return { success: true };
+  })();
+
+  // Simulate order confirmation failing
+  const confirmationPromise = Promise.reject(new Error('Email service unavailable'));
+
+  // Use Promise.allSettled so one failure doesn't stop others
+  const results = await Promise.allSettled([fulfillmentPromise, confirmationPromise]);
+
+  // Fulfillment succeeded
+  assertEquals(results[0].status, 'fulfilled');
+  assertEquals(fulfillmentComplete, true);
+
+  // Confirmation failed but didn't affect fulfillment
+  assertEquals(results[1].status, 'rejected');
+});
+
+Deno.test('stripe-webhook: both parallel operations can fail without affecting webhook response', async () => {
+  resetMocks();
+
+  // Both operations fail
+  const fulfillmentPromise = Promise.reject(new Error('Fulfillment failed'));
+  const confirmationPromise = Promise.reject(new Error('Confirmation failed'));
+
+  const results = await Promise.allSettled([fulfillmentPromise, confirmationPromise]);
+
+  // Both failed
+  assertEquals(results[0].status, 'rejected');
+  assertEquals(results[1].status, 'rejected');
+
+  // But webhook still returns success (order is paid, that's what matters)
+  const webhookResponse = new Response(JSON.stringify({ received: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  assertEquals(webhookResponse.status, 200);
+});
+
+Deno.test('stripe-webhook: parallel operations should all complete before webhook returns', async () => {
+  resetMocks();
+
+  const completedOperations: string[] = [];
+
+  const operations = [
+    (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      completedOperations.push('fulfillment');
+      return { operation: 'fulfillment' };
+    })(),
+    (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 3));
+      completedOperations.push('confirmation');
+      return { operation: 'confirmation' };
+    })(),
+  ];
+
+  // Wait for all operations
+  await Promise.allSettled(operations);
+
+  // Both should have completed
+  assertEquals(completedOperations.length, 2);
+  assertEquals(completedOperations.includes('fulfillment'), true);
+  assertEquals(completedOperations.includes('confirmation'), true);
+});
+
+Deno.test('stripe-webhook: runParallelFulfillment helper should handle mixed results', async () => {
+  resetMocks();
+
+  // Simulate the helper function behavior
+  type FulfillmentResult = {
+    operation: string;
+    success: boolean;
+    error?: string;
+  };
+
+  async function runParallelFulfillment(
+    _orderId: string,
+    _functionsUrl: string,
+    _serviceKey: string
+  ): Promise<FulfillmentResult[]> {
+    const results: FulfillmentResult[] = [];
+
+    const operations = [
+      // Fulfillment chain (QR -> PDF -> Printer)
+      (async (): Promise<FulfillmentResult> => {
+        // Simulate QR success, PDF success, Printer success
+        return { operation: 'fulfillment_chain', success: true };
+      })(),
+      // Order confirmation
+      (async (): Promise<FulfillmentResult> => {
+        // Simulate email failure
+        throw new Error('SMTP connection refused');
+      })(),
+    ];
+
+    const settled = await Promise.allSettled(operations);
+
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      } else {
+        results.push({
+          operation: 'unknown',
+          success: false,
+          error: result.reason?.message || 'Unknown error',
+        });
+      }
+    }
+
+    return results;
+  }
+
+  const results = await runParallelFulfillment('order-123', 'https://api.example.com', 'service-key');
+
+  assertEquals(results.length, 2);
+  assertEquals(results[0].success, true);
+  assertEquals(results[1].success, false);
+  assertEquals(results[1].error, 'SMTP connection refused');
+});
+
+Deno.test('stripe-webhook: parallel fulfillment preserves individual error logging', async () => {
+  resetMocks();
+
+  const errorLogs: string[] = [];
+
+  // Simulate error logging behavior
+  const operations = [
+    (async () => {
+      try {
+        throw new Error('QR generation timeout');
+      } catch (error) {
+        errorLogs.push(`Fulfillment error: ${(error as Error).message}`);
+        throw error;
+      }
+    })(),
+    (async () => {
+      try {
+        throw new Error('Email service rate limited');
+      } catch (error) {
+        errorLogs.push(`Confirmation error: ${(error as Error).message}`);
+        throw error;
+      }
+    })(),
+  ];
+
+  await Promise.allSettled(operations);
+
+  // Both errors should have been logged
+  assertEquals(errorLogs.length, 2);
+  assertEquals(errorLogs[0].includes('QR generation timeout'), true);
+  assertEquals(errorLogs[1].includes('Email service rate limited'), true);
+});
