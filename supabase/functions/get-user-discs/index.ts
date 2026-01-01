@@ -68,55 +68,73 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Generate signed URLs for all photos and process recovery status
-  const discsWithPhotoUrls = await Promise.all(
-    (discs || []).map(async (disc) => {
-      const photosWithUrls = await Promise.all(
-        (disc.photos || []).map(
-          async (photo: { id: string; storage_path: string; photo_uuid: string; created_at: string }) => {
-            const { data: urlData } = await supabaseAdmin.storage
-              .from('disc-photos')
-              .createSignedUrl(photo.storage_path, 3600); // 1 hour expiry
+  // Collect all photo paths from all discs for batch signed URL generation
+  // This fixes the N+1 query problem by making a single storage API call
+  type PhotoInfo = {
+    id: string;
+    storage_path: string;
+    photo_uuid: string;
+    created_at: string;
+  };
+  const allPhotoPaths: string[] = [];
+  for (const disc of discs || []) {
+    for (const photo of (disc.photos || []) as PhotoInfo[]) {
+      allPhotoPaths.push(photo.storage_path);
+    }
+  }
 
-            return {
-              ...photo,
-              photo_url: urlData?.signedUrl,
-            };
-          }
-        )
-      );
+  // Generate signed URLs for ALL photos in a single batch call (instead of N calls)
+  const pathToSignedUrl = new Map<string, string>();
+  if (allPhotoPaths.length > 0) {
+    const { data: signedUrls } = await supabaseAdmin.storage.from('disc-photos').createSignedUrls(allPhotoPaths, 3600); // 1 hour expiry
 
-      // Find the most recent active recovery (not recovered, cancelled, or surrendered)
-      const recoveryEvents = disc.recovery_events || [];
-      const activeRecoveries = recoveryEvents.filter(
-        (r: { status: string }) => !['recovered', 'cancelled', 'surrendered'].includes(r.status)
-      );
-      // Sort by found_at descending and get the first one
-      const activeRecovery =
-        activeRecoveries.sort(
-          (a: { found_at: string }, b: { found_at: string }) =>
-            new Date(b.found_at).getTime() - new Date(a.found_at).getTime()
-        )[0] || null;
+    // Map each path to its signed URL for efficient lookup
+    if (signedUrls) {
+      for (const urlData of signedUrls) {
+        if (urlData.path && urlData.signedUrl) {
+          pathToSignedUrl.set(urlData.path, urlData.signedUrl);
+        }
+      }
+    }
+  }
 
-      // Check if this disc was surrendered to the current user (they were the finder)
-      const surrenderedRecovery = recoveryEvents.find(
-        (r: { status: string; finder_id: string }) => r.status === 'surrendered' && r.finder_id === user.id
-      );
-      const wasSurrendered = !!surrenderedRecovery;
+  // Process discs and map signed URLs back to photos
+  const discsWithPhotoUrls = (discs || []).map((disc) => {
+    // Map photos with their pre-generated signed URLs
+    const photosWithUrls = ((disc.photos || []) as PhotoInfo[]).map((photo) => ({
+      ...photo,
+      photo_url: pathToSignedUrl.get(photo.storage_path) || null,
+    }));
 
-      // Remove recovery_events from response and add processed fields
+    // Find the most recent active recovery (not recovered, cancelled, or surrendered)
+    const recoveryEvents = disc.recovery_events || [];
+    const activeRecoveries = recoveryEvents.filter(
+      (r: { status: string }) => !['recovered', 'cancelled', 'surrendered'].includes(r.status)
+    );
+    // Sort by found_at descending and get the first one
+    const activeRecovery =
+      activeRecoveries.sort(
+        (a: { found_at: string }, b: { found_at: string }) =>
+          new Date(b.found_at).getTime() - new Date(a.found_at).getTime()
+      )[0] || null;
 
-      const { recovery_events: _, ...discWithoutRecoveries } = disc;
+    // Check if this disc was surrendered to the current user (they were the finder)
+    const surrenderedRecovery = recoveryEvents.find(
+      (r: { status: string; finder_id: string }) => r.status === 'surrendered' && r.finder_id === user.id
+    );
+    const wasSurrendered = !!surrenderedRecovery;
 
-      return {
-        ...discWithoutRecoveries,
-        photos: photosWithUrls,
-        active_recovery: activeRecovery,
-        was_surrendered: wasSurrendered,
-        surrendered_at: surrenderedRecovery?.surrendered_at || null,
-      };
-    })
-  );
+    // Remove recovery_events from response and add processed fields
+    const { recovery_events: _, ...discWithoutRecoveries } = disc;
+
+    return {
+      ...discWithoutRecoveries,
+      photos: photosWithUrls,
+      active_recovery: activeRecovery,
+      was_surrendered: wasSurrendered,
+      surrendered_at: surrenderedRecovery?.surrendered_at || null,
+    };
+  });
 
   return new Response(JSON.stringify(discsWithPhotoUrls), {
     status: 200,
