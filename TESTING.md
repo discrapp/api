@@ -22,7 +22,7 @@ intentionally exclude certain code from coverage requirements.
 | `sentry-integration.ts` | 9.8% line, 0.0% branch (excluded) | Third-party | Sentry SDK integration |
 | `sentry.ts` | **100.0%** ✅ | Application | Fully tested via dependency injection |
 | `logo-data.ts` | N/A (not tested) | Data File | Base64-encoded image (167KB) |
-| `src/schema/*.ts` | ~61-95% (Vitest tests) | Schema | Uses Vitest, not Deno test runner |
+| `src/schema/*.ts` | ~61-95% (Jest tests) | Schema | Uses Jest, not Deno test runner |
 
 **Total excluded:** ~6.3% of codebase
 

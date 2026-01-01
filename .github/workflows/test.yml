@@ -137,7 +137,7 @@ jobs:
           key: coverage-main-latest
 
   test-schema:
-    name: Run Schema Tests (Vitest)
+    name: Run Schema Tests (Jest)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -146,13 +146,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Vitest tests
+      - name: Run Jest tests
         run: npm test
 
   coverage-report:

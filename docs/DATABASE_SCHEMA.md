@@ -10,7 +10,7 @@ is managed using Drizzle ORM with PostgreSQL and deployed to Supabase.
 - **ORM:** Drizzle ORM (Node.js)
 - **Database:** PostgreSQL 17 (via Supabase)
 - **Migrations:** Drizzle Kit
-- **Testing:** Vitest with 100% coverage (lines, branches, statements)
+- **Testing:** Jest with 100% coverage (lines, branches, statements)
 
 ## Schema Architecture
 
@@ -177,7 +177,6 @@ npm run test:coverage
 
    ```typescript
    // src/schema/my-table.test.ts
-   import { describe, it, expect } from 'vitest';
    import { myTable } from './my-table';
    import { getTableColumns, getTableName } from 'drizzle-orm';
 

@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { discPhotos } from './disc-photos';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 

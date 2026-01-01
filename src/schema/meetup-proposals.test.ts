@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { meetupProposals, MeetupProposalStatus } from './meetup-proposals';
 import { getTableColumns, getTableName } from 'drizzle-orm';
 
