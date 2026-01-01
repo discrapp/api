@@ -132,25 +132,94 @@ pre-commit autoupdate           # Update hook versions
 
 ### Test-Driven Development (TDD) - MANDATORY
 
-**CRITICAL:** All new code MUST be developed using Test-Driven Development:
+**CRITICAL:** All new code MUST be developed using Test-Driven Development.
+This is NON-NEGOTIABLE. Writing implementation before tests is FORBIDDEN.
 
-1. **Write tests FIRST** - Before writing any implementation code, write tests
-1. **Red-Green-Refactor cycle:**
-   - RED: Write a failing test for the new functionality
-   - GREEN: Write minimal code to make the test pass
-   - REFACTOR: Clean up while keeping tests green
-1. **Test coverage requirements:**
-   - All edge functions must have unit tests
-   - All database operations must be tested
-   - All error paths must be covered
-1. **Test file locations:**
-   - Tests go in `supabase/functions/<function-name>/*.test.ts`
-   - Use Deno's built-in test runner
-1. **Running tests:**
+#### The TDD Workflow (MUST FOLLOW)
 
-   ```bash
-   deno test supabase/functions/
-   ```
+1. **STOP** - Before writing ANY implementation code, ask yourself: "Do I have a
+   failing test for this?" If no, write the test first.
+
+2. **RED Phase** - Write a failing test:
+   - Create the test file FIRST if it doesn't exist
+   - Write a test that describes the expected behavior
+   - Run the test and VERIFY it fails (this proves the test is valid)
+   - If the test passes without implementation, the test is wrong
+
+3. **GREEN Phase** - Write minimal implementation:
+   - Write ONLY enough code to make the failing test pass
+   - Do not add extra functionality "while you're there"
+   - Run the test and verify it passes
+
+4. **REFACTOR Phase** - Clean up while tests stay green:
+   - Improve code structure without changing behavior
+   - Run tests after each change to ensure they still pass
+
+5. **REPEAT** - Go back to step 2 for the next piece of functionality
+
+#### Coverage Requirements - 100% BY DESIGN
+
+TDD naturally produces 100% coverage because:
+
+- Every line of code exists to make a test pass
+- No code is written without a corresponding test
+- If coverage is below 100%, you skipped TDD
+
+**If you find yourself with <100% coverage, you violated TDD. Fix it immediately.**
+
+#### Verification Checklist (RUN BEFORE EVERY COMMIT)
+
+```bash
+# 1. Run tests with coverage
+deno test --coverage=.coverage --allow-all supabase/functions/
+
+# 2. Check coverage report - MUST be 100% for new code
+deno coverage .coverage
+
+# 3. If any new code is uncovered, write tests FIRST then re-run
+```
+
+#### Common TDD Violations (DO NOT DO THESE)
+
+❌ "I'll write the function first, then add tests" - WRONG
+❌ "Tests are passing, I'll add coverage later" - WRONG
+❌ "This is simple, it doesn't need tests" - WRONG
+❌ "I'll write all the code, then write all the tests" - WRONG
+
+✅ Write ONE failing test → Write code to pass it → Repeat
+
+#### Test File Locations
+
+- Tests go in `supabase/functions/<function-name>/*.test.ts`
+- Shared module tests go in `supabase/functions/_shared/*.test.ts`
+- Use Deno's built-in test runner
+
+#### Example TDD Session
+
+```bash
+# Step 1: Create test file FIRST
+touch supabase/functions/my-feature/index.test.ts
+
+# Step 2: Write failing test
+cat << 'EOF' > supabase/functions/my-feature/index.test.ts
+Deno.test('my-feature: returns 405 for non-POST', async () => {
+  // Test code here
+});
+EOF
+
+# Step 3: Run test - it MUST fail
+deno test supabase/functions/my-feature/
+# Expected: FAIL (no implementation yet)
+
+# Step 4: Write minimal implementation to pass
+# ... write just enough code ...
+
+# Step 5: Run test again - it MUST pass now
+deno test supabase/functions/my-feature/
+# Expected: PASS
+
+# Step 6: Repeat for next test case
+```
 
 **DO NOT write implementation code without tests. This is non-negotiable.**
 
