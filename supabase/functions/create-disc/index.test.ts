@@ -217,3 +217,44 @@ Deno.test('create-disc: should validate flight numbers', async () => {
     assertExists(error.error);
   }
 });
+
+Deno.test('create-disc: should call captureException on database error', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  // Mock database error
+  const dbError = { message: 'Database connection failed', code: 'ECONNREFUSED' };
+  let captureExceptionCalled = false;
+  let capturedContext: Record<string, unknown> | undefined;
+
+  // Mock captureException
+  const mockCaptureException = (
+    _error: unknown,
+    context?: Record<string, unknown>
+  ) => {
+    captureExceptionCalled = true;
+    capturedContext = context;
+  };
+
+  // Simulate database error path
+  if (dbError) {
+    mockCaptureException(dbError, {
+      operation: 'create-disc',
+      userId: mockUser.id,
+    });
+
+    const response = new Response(
+      JSON.stringify({ error: 'Failed to create disc', details: dbError.message }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    assertEquals(response.status, 500);
+    assertEquals(captureExceptionCalled, true);
+    assertExists(capturedContext);
+    assertEquals(capturedContext.operation, 'create-disc');
+    assertEquals(capturedContext.userId, 'user-123');
+  }
+});

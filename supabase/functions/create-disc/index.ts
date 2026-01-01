@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
 import { methodNotAllowed, unauthorized, badRequest, internalError, ErrorCode } from '../_shared/error-response.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
 
 interface FlightNumbers {
   speed: number;
@@ -70,6 +71,9 @@ const handler = async (req: Request): Promise<Response> => {
     return unauthorized('Unauthorized', ErrorCode.INVALID_AUTH);
   }
 
+  // Set Sentry user context
+  setUser(user.id);
+
   // Parse request body
   let body: CreateDiscRequest;
   try {
@@ -117,6 +121,10 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (dbError) {
     console.error('Database error:', dbError);
+    captureException(dbError, {
+      operation: 'create-disc',
+      userId: user.id,
+    });
     return internalError('Failed to create disc', ErrorCode.DATABASE_ERROR, {
       message: dbError.message,
     });

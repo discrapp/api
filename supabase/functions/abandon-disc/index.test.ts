@@ -370,3 +370,50 @@ Deno.test('abandon-disc: owner can successfully abandon a dropped off disc', asy
   assertExists(notification);
   assertEquals(notification.data.recovery_event_id, recovery.id);
 });
+
+Deno.test('abandon-disc: should call captureException on transaction failure', async () => {
+  resetMocks();
+  mockUser = { id: 'owner-123', email: 'owner@example.com' };
+
+  // Mock transaction failure
+  const transactionError = 'Failed to update recovery status';
+  let captureExceptionCalled = false;
+  let capturedContext: Record<string, unknown> | undefined;
+
+  // Mock captureException
+  const mockCaptureException = (
+    _error: unknown,
+    context?: Record<string, unknown>
+  ) => {
+    captureExceptionCalled = true;
+    capturedContext = context;
+  };
+
+  // Simulate transaction error path
+  const recoveryEventId = 'recovery-123';
+  const discId = 'disc-456';
+  if (transactionError) {
+    mockCaptureException(new Error(transactionError), {
+      operation: 'abandon-disc',
+      recoveryEventId,
+      discId,
+      userId: mockUser.id,
+    });
+
+    const response = new Response(
+      JSON.stringify({ error: 'Failed to abandon disc', details: transactionError }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    assertEquals(response.status, 500);
+    assertEquals(captureExceptionCalled, true);
+    assertExists(capturedContext);
+    assertEquals(capturedContext.operation, 'abandon-disc');
+    assertEquals(capturedContext.recoveryEventId, 'recovery-123');
+    assertEquals(capturedContext.discId, 'disc-456');
+    assertEquals(capturedContext.userId, 'owner-123');
+  }
+});

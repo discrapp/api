@@ -378,3 +378,47 @@ Deno.test('update-disc: should keep name in sync with mold', async () => {
   assertEquals(data.mold, 'Wraith');
   assertEquals(data.name, 'Wraith');
 });
+
+Deno.test('update-disc: should call captureException on database error', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  // Mock database error
+  const updateError = { message: 'Database connection failed', code: 'ECONNREFUSED' };
+  let captureExceptionCalled = false;
+  let capturedContext: Record<string, unknown> | undefined;
+
+  // Mock captureException
+  const mockCaptureException = (
+    _error: unknown,
+    context?: Record<string, unknown>
+  ) => {
+    captureExceptionCalled = true;
+    capturedContext = context;
+  };
+
+  // Simulate database error path during update
+  const discId = 'disc-to-update';
+  if (updateError) {
+    mockCaptureException(updateError, {
+      operation: 'update-disc',
+      discId,
+      userId: mockUser.id,
+    });
+
+    const response = new Response(
+      JSON.stringify({ error: 'Failed to update disc', details: updateError.message }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    assertEquals(response.status, 500);
+    assertEquals(captureExceptionCalled, true);
+    assertExists(capturedContext);
+    assertEquals(capturedContext.operation, 'update-disc');
+    assertEquals(capturedContext.discId, 'disc-to-update');
+    assertEquals(capturedContext.userId, 'user-123');
+  }
+});

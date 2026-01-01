@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
 import { abandonDiscTransaction } from '../_shared/transactions.ts';
 
 /**
@@ -80,6 +81,9 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
+  // Set Sentry user context
+  setUser(user.id);
+
   // Service role client only for operations that need to bypass RLS (e.g., notifications to other users)
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -143,6 +147,12 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (!transactionResult.success) {
     console.error('Failed to abandon disc:', transactionResult.error);
+    captureException(new Error(transactionResult.error), {
+      operation: 'abandon-disc',
+      recoveryEventId: recovery_event_id,
+      discId: disc.id,
+      userId: user.id,
+    });
     return new Response(JSON.stringify({ error: 'Failed to abandon disc', details: transactionResult.error }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

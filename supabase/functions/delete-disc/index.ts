@@ -10,6 +10,7 @@ import {
   internalError,
   ErrorCode,
 } from '../_shared/error-response.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
 
 interface DeleteDiscRequest {
   disc_id: string;
@@ -45,6 +46,9 @@ const handler = async (req: Request): Promise<Response> => {
     return unauthorized('Unauthorized', ErrorCode.INVALID_AUTH);
   }
 
+  // Set Sentry user context
+  setUser(user.id);
+
   // Parse request body
   let body: DeleteDiscRequest;
   try {
@@ -78,6 +82,11 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (deleteError) {
     console.error('Database error:', deleteError);
+    captureException(deleteError, {
+      operation: 'delete-disc',
+      discId: body.disc_id,
+      userId: user.id,
+    });
     return internalError('Failed to delete disc', ErrorCode.DATABASE_ERROR, {
       message: deleteError.message,
     });
