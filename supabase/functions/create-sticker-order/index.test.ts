@@ -426,3 +426,145 @@ Deno.test('create-sticker-order: should use expensive rate limit preset (2 per m
   assertEquals(RateLimitPresets.expensive.maxRequests, 2);
   assertEquals(RateLimitPresets.expensive.windowMs, 60000);
 });
+
+// =============================================================================
+// Order Number Generation Tests (for race condition fix #226)
+// =============================================================================
+
+/**
+ * Test that order numbers are unique even when multiple orders are created
+ * in rapid succession. This tests the logic that the database-level sequence
+ * is expected to provide.
+ *
+ * The actual race condition fix is in the PostgreSQL migration which uses a
+ * sequence instead of MAX() to generate order numbers atomically.
+ */
+Deno.test('create-sticker-order - generates unique order numbers for concurrent orders', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Create shipping address
+  const { data: address } = await mockSupabaseClient
+    .from('shipping_addresses')
+    .insert({
+      user_id: authData.user.id,
+      name: 'Test User',
+      street_address: '123 Test St',
+      city: 'Test City',
+      state: 'TS',
+      postal_code: '12345',
+      country: 'US',
+    })
+    .select()
+    .single();
+
+  assertExists(address);
+
+  // Simulate concurrent order creation
+  const orderPromises = [];
+  for (let i = 0; i < 5; i++) {
+    orderPromises.push(
+      mockSupabaseClient
+        .from('sticker_orders')
+        .insert({
+          user_id: authData.user.id,
+          shipping_address_id: address.id,
+          quantity: 10,
+          unit_price_cents: 100,
+          total_price_cents: 1000,
+          status: 'pending_payment',
+        })
+        .select()
+        .single()
+    );
+  }
+
+  const results = await Promise.all(orderPromises);
+
+  // Collect all order numbers
+  const orderNumbers = results.map((r) => (r.data as MockOrder).order_number);
+
+  // Verify all order numbers are unique
+  const uniqueOrderNumbers = new Set(orderNumbers);
+  assertEquals(uniqueOrderNumbers.size, orderNumbers.length, 'All order numbers should be unique');
+
+  // Verify order number format matches AB-YYYYMMDD-NNNN pattern
+  const orderNumberPattern = /^AB-\d{4}-\d{3}$/;
+  for (const orderNumber of orderNumbers) {
+    assertEquals(
+      orderNumberPattern.test(orderNumber),
+      true,
+      `Order number ${orderNumber} should match format AB-YYYY-NNN`
+    );
+  }
+});
+
+Deno.test('create-sticker-order - order number sequence increments correctly', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  const { data: authData } = await mockSupabaseClient.auth.getUser();
+  assertExists(authData.user);
+
+  // Create shipping address
+  const { data: address } = await mockSupabaseClient
+    .from('shipping_addresses')
+    .insert({
+      user_id: authData.user.id,
+      name: 'Test User',
+      street_address: '123 Test St',
+      city: 'Test City',
+      state: 'TS',
+      postal_code: '12345',
+      country: 'US',
+    })
+    .select()
+    .single();
+
+  assertExists(address);
+
+  // Create first order
+  const { data: order1 } = await mockSupabaseClient
+    .from('sticker_orders')
+    .insert({
+      user_id: authData.user.id,
+      shipping_address_id: address.id,
+      quantity: 10,
+      unit_price_cents: 100,
+      total_price_cents: 1000,
+      status: 'pending_payment',
+    })
+    .select()
+    .single();
+
+  assertExists(order1);
+
+  // Create second order
+  const { data: order2 } = await mockSupabaseClient
+    .from('sticker_orders')
+    .insert({
+      user_id: authData.user.id,
+      shipping_address_id: address.id,
+      quantity: 5,
+      unit_price_cents: 100,
+      total_price_cents: 500,
+      status: 'pending_payment',
+    })
+    .select()
+    .single();
+
+  assertExists(order2);
+
+  // Verify order numbers are sequential
+  const order1Data = order1 as MockOrder;
+  const order2Data = order2 as MockOrder;
+
+  // Extract sequence numbers from order numbers
+  const seq1 = parseInt(order1Data.order_number.split('-')[2], 10);
+  const seq2 = parseInt(order2Data.order_number.split('-')[2], 10);
+
+  assertEquals(seq2, seq1 + 1, 'Second order should have next sequence number');
+});
