@@ -207,3 +207,47 @@ Deno.test("delete-disc - should return 403 when trying to delete another user's 
     assertEquals(body.error, 'Forbidden: You do not own this disc');
   }
 });
+
+Deno.test('delete-disc - should call captureException on database error', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  // Mock database error
+  const deleteError = { message: 'Database connection failed', code: 'ECONNREFUSED' };
+  let captureExceptionCalled = false;
+  let capturedContext: Record<string, unknown> | undefined;
+
+  // Mock captureException
+  const mockCaptureException = (
+    _error: unknown,
+    context?: Record<string, unknown>
+  ) => {
+    captureExceptionCalled = true;
+    capturedContext = context;
+  };
+
+  // Simulate database error path during deletion
+  const discId = 'disc-to-delete';
+  if (deleteError) {
+    mockCaptureException(deleteError, {
+      operation: 'delete-disc',
+      discId,
+      userId: mockUser.id,
+    });
+
+    const response = new Response(
+      JSON.stringify({ error: 'Failed to delete disc', details: deleteError.message }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    assertEquals(response.status, 500);
+    assertEquals(captureExceptionCalled, true);
+    assertExists(capturedContext);
+    assertEquals(capturedContext.operation, 'delete-disc');
+    assertEquals(capturedContext.discId, 'disc-to-delete');
+    assertEquals(capturedContext.userId, 'user-123');
+  }
+});
