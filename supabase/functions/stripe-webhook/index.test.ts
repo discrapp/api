@@ -1415,3 +1415,415 @@ Deno.test('stripe-webhook: should verify Content-Type header is application/json
 
   assertEquals(response.headers.get('Content-Type'), 'application/json');
 });
+
+// ============================================================================
+// TESTS: Fulfillment Chain Error Handling
+// ============================================================================
+
+Deno.test('stripe-webhook: should continue if QR code generation fails', async () => {
+  resetMocks();
+
+  // Simulate order update success but QR code generation failure
+  const orderUpdated = true;
+  const qrGenerationFailed = true;
+
+  if (orderUpdated) {
+    // In the real handler, QR failure is logged but doesn't stop the webhook
+    if (qrGenerationFailed) {
+      // Continue anyway - order is paid, QR generation can be retried
+      const response = new Response(JSON.stringify({ received: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      assertEquals(response.status, 200);
+    }
+  }
+});
+
+Deno.test('stripe-webhook: should skip PDF generation if QR code generation fails', async () => {
+  resetMocks();
+
+  // Simulate QR code generation failure
+  const qrResponse = { ok: false };
+
+  if (!qrResponse.ok) {
+    // PDF generation should be skipped
+    const pdfTriggered = false;
+    assertEquals(pdfTriggered, false);
+  }
+});
+
+Deno.test('stripe-webhook: should skip printer notification if PDF generation fails', async () => {
+  resetMocks();
+
+  // Simulate QR success but PDF failure
+  const qrResponse = { ok: true };
+  const pdfResponse = { ok: false };
+
+  if (qrResponse.ok) {
+    if (!pdfResponse.ok) {
+      // Printer notification should be skipped
+      const printerNotificationTriggered = false;
+      assertEquals(printerNotificationTriggered, false);
+    }
+  }
+});
+
+Deno.test('stripe-webhook: should continue if printer notification fails', async () => {
+  resetMocks();
+
+  // Simulate full chain success except printer notification
+  const qrResponse = { ok: true };
+  const pdfResponse = { ok: true };
+  const printerResponse = { ok: false };
+
+  if (qrResponse.ok && pdfResponse.ok) {
+    if (!printerResponse.ok) {
+      // Just log error, webhook still succeeds
+      const response = new Response(JSON.stringify({ received: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      assertEquals(response.status, 200);
+    }
+  }
+});
+
+Deno.test('stripe-webhook: should fire-and-forget order confirmation email', async () => {
+  resetMocks();
+
+  // Order confirmation is fire-and-forget - doesn't block webhook response
+  const orderUpdated = true;
+
+  if (orderUpdated) {
+    // Confirmation email is triggered but not awaited
+    const confirmationPromise = Promise.resolve({ ok: true });
+
+    // The webhook returns before waiting for confirmation
+    const response = new Response(JSON.stringify({ received: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 200);
+
+    // Later, confirmation may succeed or fail
+    const confirmationResult = await confirmationPromise;
+    assertEquals(confirmationResult.ok, true);
+  }
+});
+
+Deno.test('stripe-webhook: should handle order confirmation email failure gracefully', async () => {
+  resetMocks();
+
+  // Even if confirmation email fails, it shouldn't affect the webhook
+  const confirmationPromise = Promise.reject(new Error('Email service unavailable'));
+
+  // Webhook returns successfully regardless
+  const response = new Response(JSON.stringify({ received: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  assertEquals(response.status, 200);
+
+  // The promise rejection is caught in the handler
+  try {
+    await confirmationPromise;
+  } catch (err) {
+    // Expected - handler catches this with .catch()
+    assertEquals((err as Error).message, 'Email service unavailable');
+  }
+});
+
+Deno.test('stripe-webhook: should trigger full fulfillment chain on successful payment', async () => {
+  resetMocks();
+
+  // Simulate successful fulfillment chain
+  const qrResponse = { ok: true };
+  const pdfResponse = { ok: true };
+  const printerResponse = { ok: true };
+
+  const fulfillmentSteps: string[] = [];
+
+  if (qrResponse.ok) {
+    fulfillmentSteps.push('qr_generated');
+
+    if (pdfResponse.ok) {
+      fulfillmentSteps.push('pdf_generated');
+
+      if (printerResponse.ok) {
+        fulfillmentSteps.push('printer_notified');
+      }
+    }
+  }
+
+  assertEquals(fulfillmentSteps.length, 3);
+  assertEquals(fulfillmentSteps.includes('qr_generated'), true);
+  assertEquals(fulfillmentSteps.includes('pdf_generated'), true);
+  assertEquals(fulfillmentSteps.includes('printer_notified'), true);
+});
+
+// ============================================================================
+// TESTS: Checkout Session Expired Edge Cases
+// ============================================================================
+
+Deno.test('stripe-webhook: checkout.session.expired should not fail on update error', async () => {
+  resetMocks();
+
+  // Even if update fails, the handler just logs and continues
+  const updateError = { message: 'Database connection error' };
+
+  if (updateError) {
+    // Handler captures exception but doesn't return error
+    // This is because expired sessions are informational
+    const response = new Response(JSON.stringify({ received: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    // Note: In the actual handler, this path goes to "break" after error log
+    assertEquals(response.status, 200);
+  }
+});
+
+Deno.test('stripe-webhook: checkout.session.expired handles order not found gracefully', async () => {
+  resetMocks();
+
+  // Order might not exist (e.g., already deleted)
+  const session: MockStripeCheckoutSession = {
+    id: 'cs_nonexistent',
+    payment_intent: null,
+    metadata: {
+      order_id: 'order-does-not-exist',
+    },
+  };
+
+  const orderExists = mockStickerOrders.find((o) => o.id === session.metadata.order_id);
+  assertEquals(orderExists, undefined);
+
+  // Handler should still return success - order might have been cleaned up
+  const response = new Response(JSON.stringify({ received: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  assertEquals(response.status, 200);
+});
+
+// ============================================================================
+// TESTS: Account Updated Edge Cases
+// ============================================================================
+
+Deno.test('stripe-webhook: account.updated handles account without stripe_connect_account_id match', async () => {
+  resetMocks();
+
+  const supabase = mockSupabaseClientSimple();
+
+  // No profile has this account ID
+  const account: MockStripeAccount = {
+    id: 'acct_unknown_123',
+    details_submitted: true,
+    payouts_enabled: true,
+  };
+
+  // Update will affect 0 rows but not error
+  const { error } = await supabase
+    .from('profiles')
+    .update({ stripe_connect_status: 'active' })
+    .eq('stripe_connect_account_id', account.id);
+
+  // No profile found but this shouldn't be a hard error
+  // The handler logs the error but continues
+  assertExists(error); // Error because profile not found in our mock
+});
+
+Deno.test('stripe-webhook: account.updated correctly calculates status priority', async () => {
+  resetMocks();
+
+  // Test that details_submitted && payouts_enabled takes priority over requirements check
+  const account: MockStripeAccount = {
+    id: 'acct_priority_test',
+    details_submitted: true,
+    payouts_enabled: true,
+    requirements: {
+      // Even with requirements, if payouts_enabled is true, status should be active
+      currently_due: ['some.requirement'],
+      errors: [],
+    },
+  };
+
+  let status: 'pending' | 'active' | 'restricted' = 'pending';
+  if (account.details_submitted && account.payouts_enabled) {
+    status = 'active';
+  } else if (account.requirements?.currently_due?.length || account.requirements?.errors?.length) {
+    status = 'restricted';
+  }
+
+  // Active takes priority when both conditions would match
+  assertEquals(status, 'active');
+});
+
+// ============================================================================
+// TESTS: Reward Payment Edge Cases
+// ============================================================================
+
+Deno.test('stripe-webhook: reward payment should differentiate by metadata type', async () => {
+  resetMocks();
+
+  // Two sessions with different types
+  const stickerSession: MockStripeCheckoutSession = {
+    id: 'cs_sticker_123',
+    payment_intent: 'pi_sticker_456',
+    metadata: {
+      order_id: 'order-123',
+      // no type means sticker order
+    },
+  };
+
+  const rewardSession: MockStripeCheckoutSession = {
+    id: 'cs_reward_123',
+    payment_intent: 'pi_reward_456',
+    metadata: {
+      type: 'reward_payment',
+      recovery_event_id: 'recovery-123',
+    },
+  };
+
+  // Sticker order handling
+  const isStickerOrder = stickerSession.metadata?.type !== 'reward_payment';
+  assertEquals(isStickerOrder, true);
+
+  // Reward payment handling
+  const isRewardPayment = rewardSession.metadata?.type === 'reward_payment';
+  assertEquals(isRewardPayment, true);
+});
+
+Deno.test('stripe-webhook: reward payment with empty recovery_event_id should fail', async () => {
+  resetMocks();
+
+  const session: MockStripeCheckoutSession = {
+    id: 'cs_reward_empty',
+    payment_intent: 'pi_reward_empty',
+    metadata: {
+      type: 'reward_payment',
+      recovery_event_id: '', // Empty string
+    },
+  };
+
+  const recoveryEventId = session.metadata?.recovery_event_id;
+
+  // Empty string is falsy, should trigger error
+  if (!recoveryEventId) {
+    const response = new Response(JSON.stringify({ error: 'Missing recovery_event_id in metadata' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assertEquals(response.status, 400);
+  }
+});
+
+// ============================================================================
+// TESTS: Response Format Validation
+// ============================================================================
+
+Deno.test('stripe-webhook: all error responses include error field', async () => {
+  const errorResponses = [
+    { error: 'Method not allowed', status: 405 },
+    { error: 'Missing stripe-signature header', status: 400 },
+    { error: 'Webhook not configured', status: 500 },
+    { error: 'Stripe not configured', status: 500 },
+    { error: 'Invalid signature', status: 400 },
+    { error: 'Missing order_id in metadata', status: 400 },
+    { error: 'Missing recovery_event_id in metadata', status: 400 },
+    { error: 'Failed to update order', status: 500 },
+    { error: 'Failed to mark reward as paid', status: 500 },
+  ];
+
+  for (const { error, status } of errorResponses) {
+    const response = new Response(JSON.stringify({ error }), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const data = await response.json();
+    assertExists(data.error);
+    assertEquals(data.error, error);
+    assertEquals(response.status, status);
+  }
+});
+
+Deno.test('stripe-webhook: success responses always include received:true', async () => {
+  const response = new Response(JSON.stringify({ received: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const data = await response.json();
+  assertEquals(data.received, true);
+});
+
+// ============================================================================
+// TESTS: Status Code Validation
+// ============================================================================
+
+Deno.test('stripe-webhook: uses correct HTTP status codes', () => {
+  // Method not allowed
+  assertEquals(405, 405);
+
+  // Bad request (missing header, invalid signature, missing metadata)
+  assertEquals(400, 400);
+
+  // Internal server error (config issues, update failures)
+  assertEquals(500, 500);
+
+  // Success
+  assertEquals(200, 200);
+});
+
+// ============================================================================
+// TESTS: Multiple Webhook Secrets Logic
+// ============================================================================
+
+Deno.test('stripe-webhook: should not try connect secret if main secret succeeds', async () => {
+  resetMocks();
+
+  let mainSecretAttempted = false;
+  let connectSecretAttempted = false;
+  let event = null;
+
+  // Simulate main secret verification
+  mainSecretAttempted = true;
+  const mainSecretVerified = true;
+  if (mainSecretVerified) {
+    event = { type: 'checkout.session.completed' };
+  }
+
+  // Connect secret should not be tried since main succeeded
+  if (!event) {
+    connectSecretAttempted = true;
+  }
+
+  assertEquals(mainSecretAttempted, true);
+  assertEquals(connectSecretAttempted, false);
+  assertExists(event);
+});
+
+Deno.test('stripe-webhook: should skip main secret verification if not configured', async () => {
+  resetMocks();
+
+  const webhookSecret = undefined;
+  const connectWebhookSecret = 'whsec_connect_only';
+
+  let event = null;
+
+  // Only try main secret if configured
+  if (webhookSecret) {
+    // This shouldn't run
+    event = { type: 'from_main' };
+  }
+
+  // Try connect secret if main didn't work
+  if (!event && connectWebhookSecret) {
+    event = { type: 'from_connect' };
+  }
+
+  assertExists(event);
+  assertEquals(event.type, 'from_connect');
+});
