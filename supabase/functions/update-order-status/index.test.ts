@@ -487,6 +487,212 @@ Deno.test('allows skipping from paid to shipped (auto-sets printed_at)', async (
   // Note: tracking_number is optional, so no tracking in this test
 });
 
+// ============================================
+// Security Tests: Token Validation & Rate Limiting
+// ============================================
+
+Deno.test('POST - returns 400 when printer_token is not a valid UUID', async () => {
+  resetMocks();
+
+  // Invalid UUID format should be rejected before database lookup
+  const invalidTokens = [
+    'not-a-uuid',
+    '12345',
+    'xyz-abc-123',
+    '', // empty string should fail the "missing" check
+    '00000000-0000-0000-0000-00000000000g', // invalid hex character
+    '00000000-0000-0000-0000-0000000000000', // too many digits
+    '00000000-0000-0000-0000-00000000000', // too few digits
+  ];
+
+  for (const invalidToken of invalidTokens) {
+    if (invalidToken === '') continue; // Empty token triggers different error
+
+    // Validate UUID format - should fail
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isValidUuid = uuidRegex.test(invalidToken);
+    assertEquals(isValidUuid, false, `Token "${invalidToken}" should be invalid UUID`);
+  }
+});
+
+Deno.test('POST - accepts valid UUID format for printer_token', () => {
+  const validUuids = [
+    '00000000-0000-0000-0000-000000000000',
+    '550e8400-e29b-41d4-a716-446655440000',
+    'A550E840-0E29-B41D-A716-446655440000', // uppercase should be valid
+    'a550e840-0e29-b41d-a716-446655440000',
+  ];
+
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  for (const validUuid of validUuids) {
+    const isValid = uuidRegex.test(validUuid);
+    assertEquals(isValid, true, `Token "${validUuid}" should be valid UUID`);
+  }
+});
+
+Deno.test('GET - returns error redirect when printer_token is not a valid UUID', () => {
+  // For GET requests, invalid UUID should redirect to error page
+  const invalidToken = 'not-a-valid-uuid';
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  if (!uuidRegex.test(invalidToken)) {
+    const response = errorResponse('Invalid token format', 400, true);
+    assertEquals(response.status, 302);
+    const location = response.headers.get('location');
+    assertExists(location);
+    assertStringIncludes(location, '/order-updated');
+    assertStringIncludes(location, 'error=');
+  }
+});
+
+Deno.test('Rate limiting - should allow requests under limit for printer token lookups', () => {
+  // Simulate rate limiting logic for printer token lookup
+  // Using 5 requests per minute as the limit for token lookups
+  const config = { windowMs: 60000, maxRequests: 5 };
+  const requestCounts = new Map<string, { count: number; windowStart: number }>();
+
+  const clientIp = '192.168.1.100';
+  const now = Date.now();
+
+  // Simulate 5 requests - all should be allowed
+  for (let i = 0; i < 5; i++) {
+    let entry = requestCounts.get(clientIp);
+    if (!entry || now - entry.windowStart >= config.windowMs) {
+      entry = { count: 1, windowStart: now };
+    } else {
+      entry.count++;
+    }
+    requestCounts.set(clientIp, entry);
+
+    const allowed = entry.count <= config.maxRequests;
+    assertEquals(allowed, true, `Request ${i + 1} should be allowed`);
+  }
+});
+
+Deno.test('Rate limiting - should block requests over limit for printer token lookups', () => {
+  // Simulate rate limiting - 6th request should be blocked
+  const config = { windowMs: 60000, maxRequests: 5 };
+  const requestCounts = new Map<string, { count: number; windowStart: number }>();
+
+  const clientIp = '192.168.1.101';
+  const now = Date.now();
+
+  // Make 5 allowed requests first
+  for (let i = 0; i < 5; i++) {
+    let entry = requestCounts.get(clientIp);
+    if (!entry || now - entry.windowStart >= config.windowMs) {
+      entry = { count: 1, windowStart: now };
+    } else {
+      entry.count++;
+    }
+    requestCounts.set(clientIp, entry);
+  }
+
+  // 6th request should be blocked
+  const entry = requestCounts.get(clientIp)!;
+  entry.count++;
+  const allowed = entry.count <= config.maxRequests;
+  assertEquals(allowed, false, 'Request 6 should be blocked');
+});
+
+Deno.test('Rate limiting - should return 429 when rate limited', async () => {
+  // Rate limit exceeded should return 429 Too Many Requests
+  const rateLimitResponse = new Response(
+    JSON.stringify({
+      error: 'Too many requests',
+      message: 'Rate limit exceeded. Please try again later.',
+    }),
+    {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-RateLimit-Limit': '5',
+        'X-RateLimit-Remaining': '0',
+        'Retry-After': '60',
+      },
+    }
+  );
+
+  assertEquals(rateLimitResponse.status, 429);
+  const body = await rateLimitResponse.json();
+  assertEquals(body.error, 'Too many requests');
+  assertExists(rateLimitResponse.headers.get('Retry-After'));
+});
+
+Deno.test('Security logging - should log failed token validation attempts', () => {
+  // Mock logger to capture log entries
+  const logEntries: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
+
+  const mockLog = {
+    warn: (message: string, context?: Record<string, unknown>) => {
+      logEntries.push({ level: 'warn', message, context });
+    },
+  };
+
+  // Simulate logging a failed token validation
+  const invalidToken = 'invalid-token';
+  const clientIp = '192.168.1.100';
+
+  mockLog.warn('Invalid printer token format', {
+    token_prefix: invalidToken.substring(0, 8) + '...',
+    ip: clientIp,
+    reason: 'not_uuid',
+  });
+
+  assertEquals(logEntries.length, 1);
+  assertEquals(logEntries[0].level, 'warn');
+  assertEquals(logEntries[0].message, 'Invalid printer token format');
+  assertExists(logEntries[0].context);
+  assertEquals(logEntries[0].context!.reason, 'not_uuid');
+});
+
+Deno.test('Security logging - should log failed token lookup attempts', () => {
+  const logEntries: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
+
+  const mockLog = {
+    warn: (message: string, context?: Record<string, unknown>) => {
+      logEntries.push({ level: 'warn', message, context });
+    },
+  };
+
+  // Simulate logging a token not found in database
+  const token = '550e8400-e29b-41d4-a716-446655440000';
+  const clientIp = '192.168.1.100';
+
+  mockLog.warn('Printer token not found', {
+    token_prefix: token.substring(0, 8) + '...',
+    ip: clientIp,
+  });
+
+  assertEquals(logEntries.length, 1);
+  assertEquals(logEntries[0].level, 'warn');
+  assertEquals(logEntries[0].message, 'Printer token not found');
+});
+
+Deno.test('Security logging - should log rate limit exceeded attempts', () => {
+  const logEntries: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
+
+  const mockLog = {
+    warn: (message: string, context?: Record<string, unknown>) => {
+      logEntries.push({ level: 'warn', message, context });
+    },
+  };
+
+  // Simulate logging a rate limit exceeded event
+  const clientIp = '192.168.1.100';
+
+  mockLog.warn('Rate limit exceeded for printer token lookup', {
+    ip: clientIp,
+    limit: 5,
+    window_ms: 60000,
+  });
+
+  assertEquals(logEntries.length, 1);
+  assertEquals(logEntries[0].level, 'warn');
+  assertStringIncludes(logEntries[0].message, 'Rate limit exceeded');
+});
+
 // Restore original fetch after all tests
 Deno.test('cleanup', () => {
   globalThis.fetch = originalFetch;

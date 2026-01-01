@@ -1,6 +1,9 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { RateLimiter, checkRateLimit, getRateLimitHeaders } from '../_shared/rate-limit.ts';
+import { RateLimitPresets } from '../_shared/with-rate-limit.ts';
+import { createLogger } from '../_shared/logger.ts';
 
 // CORS headers for cross-origin requests from web app
 const CORS_HEADERS = {
@@ -28,6 +31,51 @@ const CORS_HEADERS = {
 
 // Valid statuses that can be set via this endpoint
 const VALID_STATUSES = ['processing', 'printed', 'shipped', 'delivered'];
+
+// Logger for security monitoring
+const log = createLogger('update-order-status');
+
+// Rate limiter for printer token lookups (strict: 5 requests per minute per IP)
+// This protects against brute-force token enumeration attacks
+const printerTokenRateLimiter = new RateLimiter(RateLimitPresets.payment);
+
+// UUID validation regex (RFC 4122 compliant)
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate that a string is a valid UUID format
+ */
+function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
+/**
+ * Extract client IP from request headers for rate limiting and logging
+ */
+function extractClientIp(req: Request): string {
+  // X-Forwarded-For: client, proxy1, proxy2
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const ips = forwarded.split(',').map((ip) => ip.trim());
+    if (ips.length > 0 && ips[0]) {
+      return ips[0];
+    }
+  }
+
+  // X-Real-IP: client
+  const realIp = req.headers.get('x-real-ip');
+  if (realIp) {
+    return realIp;
+  }
+
+  // CF-Connecting-IP (Cloudflare)
+  const cfIp = req.headers.get('cf-connecting-ip');
+  if (cfIp) {
+    return cfIp;
+  }
+
+  return 'unknown';
+}
 
 // Valid status transitions
 // Note: shipped is allowed from paid/processing/printed since shipping implies printing is done
@@ -122,6 +170,62 @@ const handler = async (req: Request): Promise<Response> => {
     return errorResponse('Invalid status', 400, isGet);
   }
 
+  // Extract client IP for rate limiting and security logging
+  const clientIp = extractClientIp(req);
+
+  // Validate printer_token format (must be valid UUID)
+  // This prevents wasting database queries on obviously invalid tokens
+  if (!isValidUuid(printer_token)) {
+    log.warn('Invalid printer token format', {
+      token_prefix: printer_token.substring(0, 8) + '...',
+      ip: clientIp,
+      reason: 'not_uuid',
+    });
+    return errorResponse('Invalid token format', 400, isGet);
+  }
+
+  // Apply rate limiting to printer token lookups
+  // This protects against brute-force token enumeration attacks
+  const rateLimitResult = checkRateLimit(req, printerTokenRateLimiter);
+  if (!rateLimitResult.allowed) {
+    log.warn('Rate limit exceeded for printer token lookup', {
+      ip: clientIp,
+      limit: rateLimitResult.limit,
+      window_ms: 60000,
+    });
+
+    const rateLimitHeaders = getRateLimitHeaders(rateLimitResult);
+
+    if (isGet) {
+      // For GET requests, redirect to error page
+      const redirectUrl = new URL(`${WEB_APP_URL}/order-updated`);
+      redirectUrl.searchParams.set('error', 'Too many requests. Please try again later.');
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: redirectUrl.toString(),
+          ...rateLimitHeaders,
+        },
+      });
+    }
+
+    return new Response(
+      JSON.stringify({
+        error: 'Too many requests',
+        message: 'Rate limit exceeded. Please try again later.',
+        retryAfter: rateLimitHeaders['Retry-After'],
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          ...CORS_HEADERS,
+          ...rateLimitHeaders,
+        },
+      }
+    );
+  }
+
   // tracking_number is optional for shipped status (some orders ship without tracking)
 
   // Use service role for database operations
@@ -137,6 +241,11 @@ const handler = async (req: Request): Promise<Response> => {
     .single();
 
   if (orderError || !order) {
+    // Log failed token lookup attempts for security monitoring
+    log.warn('Printer token not found', {
+      token_prefix: printer_token.substring(0, 8) + '...',
+      ip: clientIp,
+    });
     return errorResponse('Order not found', 404, isGet);
   }
 
