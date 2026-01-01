@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser } from '../_shared/sentry.ts';
 
 /**
  * Lookup QR Code Function
@@ -67,6 +68,11 @@ const handler = async (req: Request): Promise<Response> => {
       data: { user },
     } = await supabaseAuth.auth.getUser();
     currentUserId = user?.id ?? null;
+
+    // Set Sentry user context if authenticated
+    if (currentUserId) {
+      setUser(currentUserId);
+    }
   }
 
   // Look up the QR code
