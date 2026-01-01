@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { compressImageFile } from '../_shared/image-compression.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser } from '../_shared/sentry.ts';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -44,6 +45,9 @@ const handler = async (req: Request): Promise<Response> => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Set Sentry user context
+  setUser(user.id);
 
   // Parse multipart form data
   let formData: FormData;

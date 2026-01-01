@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser } from '../_shared/sentry.ts';
 
 /**
  * Mark Reward Paid Function
@@ -76,6 +77,9 @@ const handler = async (req: Request): Promise<Response> => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Set Sentry user context
+  setUser(user.id);
 
   // Service role client only for operations that need to bypass RLS (not used in this function currently)
   const _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);

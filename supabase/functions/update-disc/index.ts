@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
-import { setUser, captureException } from '../_shared/sentry.ts';
+import { setUser } from '../_shared/sentry.ts';
 
 interface FlightNumbers {
   speed: number;
@@ -159,11 +159,6 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (updateError) {
     console.error('Database error:', updateError);
-    captureException(updateError, {
-      operation: 'update-disc',
-      discId: body.disc_id,
-      userId: user.id,
-    });
     return new Response(JSON.stringify({ error: 'Failed to update disc', details: updateError.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

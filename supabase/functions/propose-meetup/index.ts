@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendPushNotification } from '../_shared/push-notifications.ts';
 import { fetchDisplayName } from '../_shared/display-name.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { setUser } from '../_shared/sentry.ts';
 
 /**
  * Propose Meetup Function
@@ -89,6 +90,9 @@ const handler = async (req: Request): Promise<Response> => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Set Sentry user context
+  setUser(user.id);
 
   // Service role client only for operations that need to bypass RLS (e.g., notifications to other users)
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
