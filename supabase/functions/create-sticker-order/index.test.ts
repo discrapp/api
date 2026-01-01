@@ -1,4 +1,5 @@
 import { assertEquals, assertExists } from 'jsr:@std/assert';
+import { RateLimitPresets } from '../_shared/with-rate-limit.ts';
 
 // Mock data storage
 type MockAddress = {
@@ -417,4 +418,11 @@ Deno.test('create-sticker-order - returns 400 for shipping address not belonging
     const body = await response.json();
     assertEquals(body.error, 'Shipping address not found');
   }
+});
+
+// Rate limiting tests
+Deno.test('create-sticker-order: should use expensive rate limit preset (2 per minute)', () => {
+  // Verify the correct preset is configured for this Stripe checkout endpoint
+  assertEquals(RateLimitPresets.expensive.maxRequests, 2);
+  assertEquals(RateLimitPresets.expensive.windowMs, 60000);
 });

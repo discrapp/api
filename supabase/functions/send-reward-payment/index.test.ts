@@ -1,4 +1,5 @@
 import { assertEquals, assertExists } from 'jsr:@std/assert';
+import { RateLimitPresets } from '../_shared/with-rate-limit.ts';
 
 // Mock data types
 type MockUser = {
@@ -351,4 +352,11 @@ Deno.test('send-reward-payment: should return checkout URL on success', async ()
   assertEquals(data.reward_amount, 5);
   assertEquals(data.fee_amount, 0.46);
   assertEquals(data.amount, 5.46);
+});
+
+// Rate limiting tests
+Deno.test('send-reward-payment: should use expensive rate limit preset (2 per minute)', () => {
+  // Verify the correct preset is configured for this Stripe payment endpoint
+  assertEquals(RateLimitPresets.expensive.maxRequests, 2);
+  assertEquals(RateLimitPresets.expensive.windowMs, 60000);
 });

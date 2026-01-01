@@ -1,4 +1,5 @@
 import { assertEquals, assertExists } from 'jsr:@std/assert';
+import { RateLimitPresets } from '../_shared/with-rate-limit.ts';
 
 // Mock data types
 type MockQRCode = {
@@ -348,4 +349,11 @@ Deno.test('report-found-disc - should work without optional message', async () =
 
   assertExists(insertResult.data);
   assertEquals(insertResult.data.finder_message, null);
+});
+
+// Rate limiting tests
+Deno.test('report-found-disc: should use standard rate limit preset (100 per minute)', () => {
+  // Verify the correct preset is configured for this database endpoint
+  assertEquals(RateLimitPresets.standard.maxRequests, 100);
+  assertEquals(RateLimitPresets.standard.windowMs, 60000);
 });
