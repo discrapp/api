@@ -3,6 +3,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
 import { claimDiscTransaction } from '../_shared/transactions.ts';
+import {
+  methodNotAllowed,
+  unauthorized,
+  badRequest,
+  notFound,
+  internalError,
+  ErrorCode,
+} from '../_shared/error-response.ts';
 
 /**
  * Claim Disc Function
@@ -23,37 +31,25 @@ import { claimDiscTransaction } from '../_shared/transactions.ts';
 
 const handler = async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return methodNotAllowed();
   }
 
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
-    return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return unauthorized('Missing authorization header');
   }
 
   let body;
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest('Invalid JSON body', ErrorCode.INVALID_JSON);
   }
 
   const { disc_id } = body;
 
   if (!disc_id) {
-    return new Response(JSON.stringify({ error: 'disc_id is required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest('disc_id is required', ErrorCode.MISSING_FIELD, { field: 'disc_id' });
   }
 
   // Create Supabase client with user's auth for RLS-protected operations
@@ -74,10 +70,7 @@ const handler = async (req: Request): Promise<Response> => {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return unauthorized('Unauthorized', ErrorCode.INVALID_AUTH);
   }
 
   // Set Sentry user context
@@ -94,18 +87,12 @@ const handler = async (req: Request): Promise<Response> => {
     .single();
 
   if (discError || !disc) {
-    return new Response(JSON.stringify({ error: 'Disc not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return notFound('Disc not found');
   }
 
   // Verify disc has no owner
   if (disc.owner_id !== null) {
-    return new Response(JSON.stringify({ error: 'This disc already has an owner and cannot be claimed' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest('This disc already has an owner and cannot be claimed', ErrorCode.CONFLICT);
   }
 
   // Use transaction to atomically set disc owner AND close abandoned recoveries
@@ -122,9 +109,8 @@ const handler = async (req: Request): Promise<Response> => {
       discId: disc_id,
       userId: user.id,
     });
-    return new Response(JSON.stringify({ error: 'Failed to claim disc', details: transactionResult.error }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
+    return internalError('Failed to claim disc', ErrorCode.DATABASE_ERROR, {
+      message: transactionResult.error,
     });
   }
 

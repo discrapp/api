@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
+import { methodNotAllowed, unauthorized, badRequest, internalError, ErrorCode } from '../_shared/error-response.ts';
 
 interface FlightNumbers {
   speed: number;
@@ -42,19 +43,13 @@ function validateFlightNumbers(flightNumbers: FlightNumbers): string | null {
 const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return methodNotAllowed();
   }
 
   // Check authentication
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
-    return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return unauthorized('Missing authorization header');
   }
 
   // Create Supabase client
@@ -72,10 +67,7 @@ const handler = async (req: Request): Promise<Response> => {
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return unauthorized('Unauthorized', ErrorCode.INVALID_AUTH);
   }
 
   // Parse request body
@@ -83,34 +75,24 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest('Invalid JSON body', ErrorCode.INVALID_JSON);
   }
 
   // Validate required fields
   if (!body.mold || body.mold.trim() === '') {
-    return new Response(JSON.stringify({ error: 'Mold is required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest('Mold is required', ErrorCode.MISSING_FIELD, { field: 'mold' });
   }
 
   if (!body.flight_numbers) {
-    return new Response(JSON.stringify({ error: 'Flight numbers are required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
+    return badRequest('Flight numbers are required', ErrorCode.MISSING_FIELD, {
+      field: 'flight_numbers',
     });
   }
 
   // Validate flight numbers
   const flightNumbersError = validateFlightNumbers(body.flight_numbers);
   if (flightNumbersError) {
-    return new Response(JSON.stringify({ error: flightNumbersError }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest(flightNumbersError, ErrorCode.INVALID_FIELD, { field: 'flight_numbers' });
   }
 
   // Create disc (use mold as name)
@@ -135,9 +117,8 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (dbError) {
     console.error('Database error:', dbError);
-    return new Response(JSON.stringify({ error: 'Failed to create disc', details: dbError.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
+    return internalError('Failed to create disc', ErrorCode.DATABASE_ERROR, {
+      message: dbError.message,
     });
   }
 

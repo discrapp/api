@@ -1,6 +1,15 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
+import {
+  methodNotAllowed,
+  unauthorized,
+  badRequest,
+  notFound,
+  forbidden,
+  internalError,
+  ErrorCode,
+} from '../_shared/error-response.ts';
 
 interface DeleteDiscRequest {
   disc_id: string;
@@ -9,19 +18,13 @@ interface DeleteDiscRequest {
 const handler = async (req: Request): Promise<Response> => {
   // Only allow DELETE requests
   if (req.method !== 'DELETE') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return methodNotAllowed();
   }
 
   // Check authentication
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
-    return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return unauthorized('Missing authorization header');
   }
 
   // Create Supabase client
@@ -39,10 +42,7 @@ const handler = async (req: Request): Promise<Response> => {
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return unauthorized('Unauthorized', ErrorCode.INVALID_AUTH);
   }
 
   // Parse request body
@@ -50,18 +50,12 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest('Invalid JSON body', ErrorCode.INVALID_JSON);
   }
 
   // Validate required fields
   if (!body.disc_id || body.disc_id.trim() === '') {
-    return new Response(JSON.stringify({ error: 'disc_id is required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return badRequest('disc_id is required', ErrorCode.MISSING_FIELD, { field: 'disc_id' });
   }
 
   // Verify the disc exists and belongs to the user
@@ -72,17 +66,11 @@ const handler = async (req: Request): Promise<Response> => {
     .single();
 
   if (fetchError || !disc) {
-    return new Response(JSON.stringify({ error: 'Disc not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return notFound('Disc not found');
   }
 
   if (disc.owner_id !== user.id) {
-    return new Response(JSON.stringify({ error: 'Forbidden: You do not own this disc' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return forbidden('You do not own this disc');
   }
 
   // Delete the disc (cascade will handle related records like photos)
@@ -90,9 +78,8 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (deleteError) {
     console.error('Database error:', deleteError);
-    return new Response(JSON.stringify({ error: 'Failed to delete disc', details: deleteError.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
+    return internalError('Failed to delete disc', ErrorCode.DATABASE_ERROR, {
+      message: deleteError.message,
     });
   }
 
