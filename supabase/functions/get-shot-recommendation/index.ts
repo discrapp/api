@@ -109,14 +109,29 @@ IMPORTANT GUIDELINES:
 FLIGHT PATH VISUALIZATION:
 Estimate the position of the tee box and basket in the image as percentages (0-100):
 - tee_position: Where the photo is taken from (usually bottom center, around x:50, y:85-95)
-- basket_position: Where the basket is located ON THE FAIRWAY/GROUND.
-  CRITICAL RULES:
-  1. NEVER place basket in water, trees, sky, or any hazard you identified above
-  2. The fairway is the SAFE grass area - basket MUST be on the fairway
-  3. In this image: if water is on LEFT, basket should be on RIGHT side of image (higher x value)
-  4. If water is on RIGHT, basket should be on LEFT side (lower x value)
-  5. Y value should be 45-60 - on the visible grass, not too far in the distance
-  6. Follow the walking path or mowed grass - that leads to the basket
+- basket_position: Where the DISC GOLF BASKET is located in the image.
+
+BASKET DETECTION - CRITICAL:
+A disc golf basket is a metal target with these features:
+- Vertical metal pole (usually yellow or silver)
+- Chains hanging down in a circular pattern from the top
+- Metal band/cage around the chains
+- Sits on a base on the ground
+- Often has a flag or number sign nearby
+
+STEP 1: SCAN THE ENTIRE IMAGE for the disc golf basket. Look carefully - it may be:
+- Small in the distance (appears as a thin vertical object with chains)
+- Partially obscured by trees or terrain
+- On the left, right, or center of the image
+
+STEP 2: If you FIND the basket, mark its EXACT position (x, y percentages)
+STEP 3: If you CANNOT find the basket, estimate based on fairway direction
+
+RULES:
+1. PRIORITIZE finding the actual basket over inferring position
+2. The basket is NEVER in water, dense trees, or sky
+3. Look for the distinctive chain/pole silhouette
+4. Y value is typically 10-60 depending on distance (further = lower Y value)
 
 Return ONLY this JSON (no other text):
 {
