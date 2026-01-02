@@ -160,18 +160,18 @@ describe('validateFlightNumbers', () => {
       fade: 1,
     };
 
-    expect(() => validateFlightNumbers(invalid)).toThrow('Turn must be between -5 and 1');
+    expect(() => validateFlightNumbers(invalid)).toThrow('Turn must be between -5 and 5');
   });
 
-  it('should reject turn above 1', () => {
+  it('should reject turn above 5', () => {
     const invalid: FlightNumbers = {
       speed: 7,
       glide: 5,
-      turn: 2,
+      turn: 6,
       fade: 1,
     };
 
-    expect(() => validateFlightNumbers(invalid)).toThrow('Turn must be between -5 and 1');
+    expect(() => validateFlightNumbers(invalid)).toThrow('Turn must be between -5 and 5');
   });
 
   it('should reject fade below 0', () => {
@@ -207,7 +207,7 @@ describe('validateFlightNumbers', () => {
     const maxValid: FlightNumbers = {
       speed: 14,
       glide: 7,
-      turn: 1,
+      turn: 5,
       fade: 5,
     };
 

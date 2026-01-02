@@ -30,8 +30,8 @@ function validateFlightNumbers(flightNumbers: FlightNumbers): string | null {
   if (flightNumbers.glide < 1 || flightNumbers.glide > 7) {
     return 'Glide must be between 1 and 7';
   }
-  if (flightNumbers.turn < -5 || flightNumbers.turn > 1) {
-    return 'Turn must be between -5 and 1';
+  if (flightNumbers.turn < -5 || flightNumbers.turn > 5) {
+    return 'Turn must be between -5 and 5';
   }
   if (flightNumbers.fade < 0 || flightNumbers.fade > 5) {
     return 'Fade must be between 0 and 5';
