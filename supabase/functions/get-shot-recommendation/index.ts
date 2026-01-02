@@ -92,10 +92,11 @@ function buildClaudePrompt(discs: UserDisc[], throwingHand: 'right' | 'left'): s
 
 BASKET POSITION RULES:
 - Trees are NOT the basket. The basket is TINY (a few pixels) compared to trees.
-- If water/lake is on LEFT side: basket is at FAR RIGHT edge of grass, x: 85-95
-- If water/lake is on RIGHT side: basket is at FAR LEFT edge of grass, x: 5-15
-- The basket is typically at the END of the visible fairway, past any scattered trees
-- Set basket_visible:false if you cannot identify a specific small metal pole with chains
+- If water/lake is on LEFT: basket x: 90-95 (very far right edge), y: 40-50 (grass horizon)
+- If water/lake is on RIGHT: basket x: 5-10 (very far left edge), y: 40-50 (grass horizon)
+- The basket sits ON THE GRASS where grass meets the horizon/tree line, NOT in the sky
+- Y should be where the green grass is, typically 40-55, NOT above 35
+- Set basket_visible:false since the basket is usually too small to see clearly
 
 DISC SELECTION:
 Throwing hand: ${throwingHand} (backhand fades ${throwingHand === 'right' ? 'left' : 'right'})
