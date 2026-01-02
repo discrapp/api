@@ -88,52 +88,43 @@ function buildClaudePrompt(discs: UserDisc[], throwingHand: 'right' | 'left'): s
     })
     .join('\n');
 
-  return `You are an expert disc golf caddy analyzing a photo taken from a tee pad.
+  return `You are an expert disc golf caddy. BEFORE analyzing anything else, you must FIND THE BASKET.
 
-ANALYZE THE HOLE:
-1. DISTANCE: Estimate feet to the basket using visual cues (basket size relative to surroundings, tree heights ~50-80ft, fairway width)
-2. TERRAIN: Identify elevation change, obstacles (trees, water, OB), fairway shape
-3. SHOT: Recommend the best disc from the user's bag with full shot breakdown
+===== STEP 1: FIND THE BASKET (DO THIS FIRST) =====
+Look at the image and find the disc golf basket. It appears as a SMALL VERTICAL OBJECT:
+- Thin pole (yellow, silver, or dark) standing on grass
+- About 1-2% of image height at 300+ feet distance
+- Has chains hanging from top (may look like slight widening at top)
+- Stands ALONE - not among trees, not in water
 
+SCAN THE IMAGE NOW:
+- Check the FAR RIGHT of the grassy area (x: 70-95)
+- Check the FAR LEFT of the grassy area (x: 5-30)
+- Check the CENTER in the distance (x: 40-60)
+- The basket is on GRASS at the FAR END of the fairway
+
+When you find it, note the EXACT x,y position as percentages.
+If you cannot find it, set basket_visible: false.
+
+===== STEP 2: ANALYZE TERRAIN =====
+- Distance estimate (use basket size and tree heights ~50-80ft as reference)
+- Elevation change (uphill/downhill/flat)
+- Obstacles (water, trees, OB)
+- Fairway shape
+
+===== STEP 3: RECOMMEND SHOT =====
 USER'S THROWING HAND: ${throwingHand}
 (For ${throwingHand}-handed backhand: discs fade ${throwingHand === 'right' ? 'left' : 'right'})
 
 USER'S DISC BAG:
 ${discList}
 
-IMPORTANT GUIDELINES:
-- Choose a disc from the user's bag by ID
-- Consider the thrower's hand when recommending throw type
-- Power percentage is 50-100% (100% = full power)
-- Provide specific, actionable line description
+Choose the best disc and throw type. Power percentage is 50-100%.
 
-FLIGHT PATH VISUALIZATION:
-Estimate the position of the tee box and basket in the image as percentages (0-100):
-- tee_position: Where the photo is taken from (usually bottom center, around x:50, y:85-95)
-- basket_position: Where the DISC GOLF BASKET is located in the image.
-
-BASKET DETECTION - YOU MUST ACTUALLY FIND IT:
-DO NOT just guess where the basket "should be". VISUALLY SCAN the image to FIND the actual basket.
-
-WHAT TO LOOK FOR:
-The disc golf basket appears as a SMALL VERTICAL OBJECT on the grass. At 300+ feet, it looks like:
-- A thin dark vertical line (the pole) about 1-2% of image height
-- May have a slightly wider top (the chains/cage)
-- Stands ALONE on open grass - not among trees
-- Often near the FAR EDGE of the visible fairway
-
-SCANNING PROCEDURE (DO THIS):
-1. Look at the RIGHT EDGE of the grassy area - scan for any small vertical object
-2. Look at the LEFT EDGE of the grassy area - scan for any small vertical object
-3. Look along the CENTER of the fairway in the distance
-4. The basket is usually at the BOUNDARY between grass and trees/water, not IN them
-
-CRITICAL: Report whether you actually FOUND the basket visually:
-- basket_visible: true = "I can see a small vertical object that is the basket"
-- basket_visible: false = "I cannot see the basket, this position is my best estimate"
-
-IF BASKET NOT VISIBLE: Place marker at the far end of the visible fairway, on the side
-AWAY from water hazards (if water on left, place on right edge of grass, x > 70)
+===== OUTPUT FORMAT =====
+- tee_position: Usually bottom center (x:50, y:85-95)
+- basket_position: The EXACT position where you found the basket
+- basket_visible: true ONLY if you can point to a specific vertical object
 
 Return ONLY this JSON (no other text):
 {
