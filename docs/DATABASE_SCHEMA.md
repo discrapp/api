@@ -84,7 +84,7 @@ Disc golf discs owned by users.
 {
   speed: number    // 1-14
   glide: number    // 1-7
-  turn: number     // -5 to 1
+  turn: number     // -5 to 5
   fade: number     // 0-5
   stability?: number // Optional
 }

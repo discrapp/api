@@ -35,7 +35,7 @@ export const ShippingAddressSchema = z.object({
 export const FlightNumbersSchema = z.object({
   speed: z.number().min(1).max(14, 'Speed must be between 1 and 14'),
   glide: z.number().min(1).max(7, 'Glide must be between 1 and 7'),
-  turn: z.number().min(-5).max(1, 'Turn must be between -5 and 1'),
+  turn: z.number().min(-5).max(5, 'Turn must be between -5 and 5'),
   fade: z.number().min(0).max(5, 'Fade must be between 0 and 5'),
   stability: z.number().optional(),
 });

@@ -172,7 +172,7 @@ Deno.test('FlightNumbersSchema - rejects glide out of range', () => {
 });
 
 Deno.test('FlightNumbersSchema - rejects turn out of range', () => {
-  const invalid = { speed: 9, glide: 5, turn: 2, fade: 2 }; // Turn > 1
+  const invalid = { speed: 9, glide: 5, turn: 6, fade: 2 }; // Turn > 5
   const result = FlightNumbersSchema.safeParse(invalid);
   assertEquals(result.success, false);
 });
