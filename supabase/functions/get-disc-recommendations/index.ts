@@ -226,12 +226,16 @@ function analyzeBag(discs: UserDisc[]): BagAnalysis {
 }
 
 // Generate Infinite Discs affiliate link
+// URL format: https://infinitediscs.com/{manufacturer-slug}-{mold-slug}
+// Example: https://infinitediscs.com/dynamic-discs-deputy
 function generateAffiliateUrl(manufacturer: string, mold: string, affiliateId: string): string {
-  const searchQuery = encodeURIComponent(`${manufacturer} ${mold}`);
-  const baseUrl = `https://infinitediscs.com/Search-Results?search=${searchQuery}`;
+  // Convert to URL slug format: lowercase, spaces to hyphens
+  const manufacturerSlug = manufacturer.toLowerCase().replace(/\s+/g, '-');
+  const moldSlug = mold.toLowerCase().replace(/\s+/g, '-');
+  const baseUrl = `https://infinitediscs.com/${manufacturerSlug}-${moldSlug}`;
   // Only add affiliate param if it's set
   if (affiliateId) {
-    return `${baseUrl}&aff=${affiliateId}`;
+    return `${baseUrl}?aff=${affiliateId}`;
   }
   return baseUrl;
 }
@@ -293,17 +297,20 @@ function buildClaudePrompt(bagAnalysis: BagAnalysis, catalogDiscs: CatalogDisc[]
     )
     .join('\n');
 
-  // Build list of brands to recommend from (user's brands + popular)
-  const brandsToRecommend =
-    topBrands.length > 0
-      ? `User's preferred brands: ${topBrands.join(', ')}\nPopular alternatives: ${POPULAR_BRANDS.slice(0, 8).join(', ')}`
-      : `Recommend from these popular brands: ${POPULAR_BRANDS.slice(0, 10).join(', ')}`;
+  // Build brand preferences with counts to show which is PRIMARY
+  const brandPrefsWithCounts = bagAnalysis.brand_preferences
+    .slice(0, 5)
+    .map((b) => `${b.manufacturer} (${b.count} disc${b.count > 1 ? 's' : ''})`)
+    .join(', ');
+
+  // Identify the PRIMARY brand (highest count)
+  const primaryBrand = bagAnalysis.brand_preferences[0]?.manufacturer || null;
+  const primaryBrandCount = bagAnalysis.brand_preferences[0]?.count || 0;
 
   return `You are an expert disc golf equipment advisor. Analyze this user's bag and recommend ${count} disc(s) to fill gaps.
 
 USER'S BAG ANALYSIS:
 - Total discs: ${bagAnalysis.total_discs}
-- Preferred brands: ${topBrands.join(', ') || 'None established'}
 - Preferred plastics: ${topPlastics.join(', ') || 'None established'}
 - Speed range: ${bagAnalysis.speed_coverage.min}-${bagAnalysis.speed_coverage.max}
 - Speed gaps: ${bagAnalysis.speed_coverage.gaps.map((g) => `${g.from}-${g.to}`).join(', ') || 'None'}
@@ -314,18 +321,24 @@ ${stabilityMatrix || '  No discs with flight numbers'}
 IDENTIFIED GAPS:
 ${bagAnalysis.identified_gaps.map((g) => `- ${g}`).join('\n') || '- None identified'}
 
-BRAND PREFERENCES:
-${brandsToRecommend}
+BRAND PREFERENCES (CRITICAL - ranked by disc count):
+${brandPrefsWithCounts || 'No brand preferences established'}
+${primaryBrand ? `\n**PRIMARY BRAND: ${primaryBrand}** (${primaryBrandCount} discs) - This is the user's main brand. MOST recommendations should be from this brand.` : ''}
+
+Popular brands for variety: ${POPULAR_BRANDS.slice(0, 8).join(', ')}
 
 AVAILABLE DISCS TO RECOMMEND FROM:
 ${catalogList}
 
-CRITICAL INSTRUCTIONS (MUST FOLLOW IN ORDER):
-1. **BRAND MATCHING IS MANDATORY**: You MUST recommend discs from the user's preferred brands first. Only recommend from popular alternatives if the user's brands don't have a disc that fills the gap.
-2. Recommend exactly ${count} disc(s) to fill the most important gaps
-3. Gap priorities: (1) Missing category gaps, (2) Missing stability slots, (3) Speed gaps
+CRITICAL INSTRUCTIONS (MUST FOLLOW IN THIS EXACT ORDER):
+1. **PRIMARY BRAND FIRST**: The user's PRIMARY brand (${primaryBrand || 'none'}) should be used for the MAJORITY of recommendations. If recommending ${count} disc(s):
+   - For 1 recommendation: Use the PRIMARY brand
+   - For 3 recommendations: At least 2 should be from the PRIMARY brand
+   - For 5 recommendations: At least 3 should be from the PRIMARY brand
+2. **VARIETY**: When recommending multiple discs, include SOME variety from the user's other preferred brands (not just all from one brand)
+3. **GAP FILLING**: Prioritize gaps in this order: (1) Missing category gaps, (2) Missing stability slots, (3) Speed gaps
 4. Each recommendation should fill a DIFFERENT gap
-5. Provide clear reasoning that mentions why you chose that specific brand/manufacturer
+5. Explain your brand choice in the reasoning (e.g., "Staying with your primary brand Innova..." or "Adding variety with Latitude 64...")
 
 Return ONLY this JSON (no other text):
 {

@@ -233,12 +233,15 @@ function analyzeBag(discs: MockDisc[]): BagAnalysis {
 }
 
 // Affiliate link generation
+// URL format: https://infinitediscs.com/{manufacturer-slug}-{mold-slug}
 function generateAffiliateUrl(manufacturer: string, mold: string, affiliateId: string): string {
-  const searchQuery = encodeURIComponent(`${manufacturer} ${mold}`);
-  const baseUrl = `https://infinitediscs.com/Search-Results?search=${searchQuery}`;
+  // Convert to URL slug format: lowercase, spaces to hyphens
+  const manufacturerSlug = manufacturer.toLowerCase().replace(/\s+/g, '-');
+  const moldSlug = mold.toLowerCase().replace(/\s+/g, '-');
+  const baseUrl = `https://infinitediscs.com/${manufacturerSlug}-${moldSlug}`;
   // Only add affiliate param if it's set
   if (affiliateId) {
-    return `${baseUrl}&aff=${affiliateId}`;
+    return `${baseUrl}?aff=${affiliateId}`;
   }
   return baseUrl;
 }
@@ -1019,24 +1022,29 @@ Deno.test('get-disc-recommendations: analyzeBag should identify missing stabilit
 Deno.test('get-disc-recommendations: generateAffiliateUrl should create valid URL', () => {
   const url = generateAffiliateUrl('Innova', 'Destroyer', 'my-affiliate-123');
 
-  assertEquals(url.startsWith('https://infinitediscs.com/Search-Results?search='), true);
-  assertEquals(url.includes('search=Innova%20Destroyer'), true);
-  assertEquals(url.includes('aff=my-affiliate-123'), true);
+  // Should be direct disc page format: https://infinitediscs.com/innova-destroyer
+  assertEquals(url, 'https://infinitediscs.com/innova-destroyer?aff=my-affiliate-123');
 });
 
-Deno.test('get-disc-recommendations: generateAffiliateUrl should handle special characters', () => {
-  const url = generateAffiliateUrl('Dynamic Discs', "Judge's Eye", 'affiliate-id');
+Deno.test('get-disc-recommendations: generateAffiliateUrl should handle spaces in names', () => {
+  const url = generateAffiliateUrl('Dynamic Discs', 'Deputy', 'affiliate-id');
 
-  assertEquals(url.includes('Dynamic%20Discs'), true);
-  assertEquals(url.includes('aff=affiliate-id'), true);
+  // Spaces should become hyphens: dynamic-discs-deputy
+  assertEquals(url, 'https://infinitediscs.com/dynamic-discs-deputy?aff=affiliate-id');
 });
 
 Deno.test('get-disc-recommendations: generateAffiliateUrl should work without affiliate ID', () => {
   const url = generateAffiliateUrl('Innova', 'Destroyer', '');
 
-  assertEquals(url.startsWith('https://infinitediscs.com/Search-Results?search='), true);
-  assertEquals(url.includes('search=Innova%20Destroyer'), true);
-  assertEquals(url.includes('aff='), false);
+  // No affiliate param when not set
+  assertEquals(url, 'https://infinitediscs.com/innova-destroyer');
+});
+
+Deno.test('get-disc-recommendations: generateAffiliateUrl should handle mixed case', () => {
+  const url = generateAffiliateUrl('INNOVA', 'DESTROYER', 'test');
+
+  // Should lowercase everything
+  assertEquals(url, 'https://infinitediscs.com/innova-destroyer?aff=test');
 });
 
 // ============== CATALOG FILTERING TESTS ==============
