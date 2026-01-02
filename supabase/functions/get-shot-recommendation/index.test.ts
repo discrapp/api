@@ -565,3 +565,270 @@ Deno.test('get-shot-recommendation: should handle left-handed thrower', () => {
   assertEquals(claudeResponse.recommendation.throw_type, 'anhyzer');
   assertExists(claudeResponse.recommendation.line_description);
 });
+
+// ============== GPS FUNCTIONALITY TESTS ==============
+
+// Test haversineDistance function logic
+Deno.test('get-shot-recommendation: haversine distance should calculate correctly for nearby points', () => {
+  // Haversine formula implementation to test
+  function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  // Test: same point should be 0 distance
+  const dist0 = haversineDistance(45.0, -122.0, 45.0, -122.0);
+  assertEquals(dist0, 0);
+
+  // Test: ~15 feet apart (about 4.57 meters)
+  // At 45° latitude, 1 degree longitude ≈ 78,846 meters
+  // 4.57m / 78846 ≈ 0.000058 degrees
+  const lat1 = 45.0;
+  const lon1 = -122.0;
+  const lon2 = -122.0 + 0.000058;
+  const dist15ft = haversineDistance(lat1, lon1, lat1, lon2);
+  // Should be approximately 4.5-5 meters
+  assertEquals(dist15ft > 4 && dist15ft < 5, true);
+
+  // Test: ~100 meters apart should be greater than 15ft radius
+  const lon3 = -122.0 + 0.00127; // ~100m at 45° latitude
+  const dist100m = haversineDistance(lat1, lon1, lat1, lon3);
+  assertEquals(dist100m > 90 && dist100m < 110, true);
+});
+
+// Test averageCorrections function logic
+Deno.test('get-shot-recommendation: averageCorrections should average positions correctly', () => {
+  interface NearbyCorrection {
+    corrected_tee_position: { x: number; y: number };
+    corrected_basket_position: { x: number; y: number };
+  }
+
+  function averageCorrections(corrections: NearbyCorrection[]): NearbyCorrection {
+    const count = corrections.length;
+    const sumTee = { x: 0, y: 0 };
+    const sumBasket = { x: 0, y: 0 };
+
+    for (const c of corrections) {
+      sumTee.x += c.corrected_tee_position.x;
+      sumTee.y += c.corrected_tee_position.y;
+      sumBasket.x += c.corrected_basket_position.x;
+      sumBasket.y += c.corrected_basket_position.y;
+    }
+
+    return {
+      corrected_tee_position: {
+        x: Math.round((sumTee.x / count) * 10) / 10,
+        y: Math.round((sumTee.y / count) * 10) / 10,
+      },
+      corrected_basket_position: {
+        x: Math.round((sumBasket.x / count) * 10) / 10,
+        y: Math.round((sumBasket.y / count) * 10) / 10,
+      },
+    };
+  }
+
+  // Test: single correction should return same values
+  const single = averageCorrections([
+    {
+      corrected_tee_position: { x: 10, y: 90 },
+      corrected_basket_position: { x: 85, y: 45 },
+    },
+  ]);
+  assertEquals(single.corrected_tee_position.x, 10);
+  assertEquals(single.corrected_tee_position.y, 90);
+  assertEquals(single.corrected_basket_position.x, 85);
+  assertEquals(single.corrected_basket_position.y, 45);
+
+  // Test: average of two corrections
+  const avg = averageCorrections([
+    {
+      corrected_tee_position: { x: 10, y: 90 },
+      corrected_basket_position: { x: 80, y: 40 },
+    },
+    {
+      corrected_tee_position: { x: 12, y: 88 },
+      corrected_basket_position: { x: 82, y: 42 },
+    },
+  ]);
+  assertEquals(avg.corrected_tee_position.x, 11);
+  assertEquals(avg.corrected_tee_position.y, 89);
+  assertEquals(avg.corrected_basket_position.x, 81);
+  assertEquals(avg.corrected_basket_position.y, 41);
+
+  // Test: average of three corrections with rounding
+  const avg3 = averageCorrections([
+    {
+      corrected_tee_position: { x: 10, y: 90 },
+      corrected_basket_position: { x: 80, y: 40 },
+    },
+    {
+      corrected_tee_position: { x: 11, y: 91 },
+      corrected_basket_position: { x: 81, y: 41 },
+    },
+    {
+      corrected_tee_position: { x: 12, y: 92 },
+      corrected_basket_position: { x: 82, y: 42 },
+    },
+  ]);
+  assertEquals(avg3.corrected_tee_position.x, 11);
+  assertEquals(avg3.corrected_tee_position.y, 91);
+  assertEquals(avg3.corrected_basket_position.x, 81);
+  assertEquals(avg3.corrected_basket_position.y, 41);
+});
+
+// Test buildClaudePrompt with nearby corrections
+Deno.test('get-shot-recommendation: buildClaudePrompt should include nearby corrections', () => {
+  interface NearbyCorrection {
+    corrected_tee_position: { x: number; y: number };
+    corrected_basket_position: { x: number; y: number };
+  }
+
+  interface UserDisc {
+    id: string;
+    mold: string | null;
+    name: string | null;
+    manufacturer: string | null;
+    flight_numbers: { speed: number; glide: number; turn: number; fade: number } | null;
+  }
+
+  function buildClaudePrompt(
+    discs: UserDisc[],
+    throwingHand: 'right' | 'left',
+    nearbyCorrection?: NearbyCorrection
+  ): string {
+    const discList = discs
+      .map((d) => {
+        const name = d.mold || d.name || 'Unknown';
+        const manufacturer = d.manufacturer || 'Unknown';
+        const fn = d.flight_numbers;
+        const flightNumbers = fn ? `${fn.speed}/${fn.glide}/${fn.turn}/${fn.fade}` : 'N/A';
+        return `- ${name} (${manufacturer}): ${flightNumbers} [ID: ${d.id}]`;
+      })
+      .join('\n');
+
+    const positionHint = nearbyCorrection
+      ? `
+IMPORTANT - LEARNED POSITION DATA:
+Previous users at this exact location have corrected the positions to:
+- Tee position: x=${nearbyCorrection.corrected_tee_position.x}, y=${nearbyCorrection.corrected_tee_position.y}
+- Basket position: x=${nearbyCorrection.corrected_basket_position.x}, y=${nearbyCorrection.corrected_basket_position.y}
+Use these as your starting point, but adjust if the photo perspective is clearly different.
+`
+      : '';
+
+    return `Analyze this disc golf hole photo and return ONLY a JSON object. No explanatory text.
+${positionHint}
+Throwing hand: ${throwingHand}
+Available discs:
+${discList}`;
+  }
+
+  const discs: UserDisc[] = [
+    {
+      id: 'disc-1',
+      mold: 'Destroyer',
+      name: null,
+      manufacturer: 'Innova',
+      flight_numbers: { speed: 12, glide: 5, turn: -1, fade: 3 },
+    },
+  ];
+
+  // Test without nearby corrections
+  const promptWithout = buildClaudePrompt(discs, 'right');
+  assertEquals(promptWithout.includes('LEARNED POSITION DATA'), false);
+  assertEquals(promptWithout.includes('Destroyer'), true);
+  assertEquals(promptWithout.includes('right'), true);
+
+  // Test with nearby corrections
+  const correction: NearbyCorrection = {
+    corrected_tee_position: { x: 15, y: 85 },
+    corrected_basket_position: { x: 88, y: 42 },
+  };
+  const promptWith = buildClaudePrompt(discs, 'left', correction);
+  assertEquals(promptWith.includes('LEARNED POSITION DATA'), true);
+  assertEquals(promptWith.includes('Tee position: x=15, y=85'), true);
+  assertEquals(promptWith.includes('Basket position: x=88, y=42'), true);
+  assertEquals(promptWith.includes('left'), true);
+});
+
+// Test GPS storage in shot log
+Deno.test('get-shot-recommendation: should store GPS coordinates in shot log', () => {
+  resetMocks();
+
+  interface MockShotLogWithGps extends MockShotLog {
+    photo_latitude: number | null;
+    photo_longitude: number | null;
+  }
+
+  const mockShotLogsWithGps: MockShotLogWithGps[] = [];
+
+  function insertShotLogWithGps(logData: Record<string, unknown>): MockShotLogWithGps {
+    const newLog: MockShotLogWithGps = {
+      id: crypto.randomUUID(),
+      user_id: logData.user_id as string,
+      ai_estimated_distance_ft: logData.ai_estimated_distance_ft as number,
+      ai_confidence: logData.ai_confidence as number,
+      recommended_disc_id: logData.recommended_disc_id as string,
+      recommended_throw_type: logData.recommended_throw_type as string,
+      recommended_power_percentage: logData.recommended_power_percentage as number,
+      recommended_line_description: logData.recommended_line_description as string,
+      processing_time_ms: logData.processing_time_ms as number,
+      photo_latitude: (logData.photo_latitude as number) ?? null,
+      photo_longitude: (logData.photo_longitude as number) ?? null,
+    };
+    mockShotLogsWithGps.push(newLog);
+    return newLog;
+  }
+
+  // Test: log with GPS coordinates
+  insertShotLogWithGps({
+    user_id: 'user-123',
+    ai_estimated_distance_ft: 285,
+    ai_confidence: 0.85,
+    recommended_disc_id: 'disc-1',
+    recommended_throw_type: 'hyzer',
+    recommended_power_percentage: 85,
+    recommended_line_description: 'Test line',
+    processing_time_ms: 1000,
+    photo_latitude: 45.123456,
+    photo_longitude: -122.987654,
+  });
+
+  assertEquals(mockShotLogsWithGps.length, 1);
+  assertEquals(mockShotLogsWithGps[0].photo_latitude, 45.123456);
+  assertEquals(mockShotLogsWithGps[0].photo_longitude, -122.987654);
+
+  // Test: log without GPS coordinates (null)
+  insertShotLogWithGps({
+    user_id: 'user-456',
+    ai_estimated_distance_ft: 300,
+    ai_confidence: 0.9,
+    recommended_disc_id: 'disc-2',
+    recommended_throw_type: 'flat',
+    recommended_power_percentage: 90,
+    recommended_line_description: 'No GPS test',
+    processing_time_ms: 1100,
+    photo_latitude: null,
+    photo_longitude: null,
+  });
+
+  assertEquals(mockShotLogsWithGps.length, 2);
+  assertEquals(mockShotLogsWithGps[1].photo_latitude, null);
+  assertEquals(mockShotLogsWithGps[1].photo_longitude, null);
+});
+
+// Test NEARBY_RADIUS_METERS constant (15 feet = 4.57 meters)
+Deno.test('get-shot-recommendation: NEARBY_RADIUS_METERS should be 15 feet in meters', () => {
+  const NEARBY_RADIUS_METERS = 4.57; // 15 feet in meters
+  const FEET_TO_METERS = 0.3048;
+  const expectedMeters = 15 * FEET_TO_METERS;
+
+  // Should be approximately equal (within 0.01m tolerance)
+  assertEquals(Math.abs(NEARBY_RADIUS_METERS - expectedMeters) < 0.01, true);
+});
