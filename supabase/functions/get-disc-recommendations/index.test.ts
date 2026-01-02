@@ -235,7 +235,76 @@ function analyzeBag(discs: MockDisc[]): BagAnalysis {
 // Affiliate link generation
 function generateAffiliateUrl(manufacturer: string, mold: string, affiliateId: string): string {
   const searchQuery = encodeURIComponent(`${manufacturer} ${mold}`);
-  return `https://infinitediscs.com/search?s=${searchQuery}&aff=${affiliateId}`;
+  const baseUrl = `https://infinitediscs.com/Search-Results?search=${searchQuery}`;
+  // Only add affiliate param if it's set
+  if (affiliateId) {
+    return `${baseUrl}&aff=${affiliateId}`;
+  }
+  return baseUrl;
+}
+
+// Popular disc golf brands (well-known manufacturers)
+const POPULAR_BRANDS = [
+  'Innova',
+  'Discraft',
+  'Dynamic Discs',
+  'Latitude 64',
+  'MVP',
+  'Axiom',
+  'Streamline',
+  'Westside Discs',
+  'Kastaplast',
+  'Prodigy',
+  'Discmania',
+  'Trilogy',
+  'Infinite Discs',
+  'Thought Space Athletics',
+  'Mint Discs',
+  'Lone Star Discs',
+];
+
+// Filter and prioritize catalog discs based on user's preferences
+interface CatalogDiscForFilter {
+  id: string;
+  manufacturer: string;
+  mold: string;
+}
+
+function filterAndPrioritizeCatalog(
+  catalogDiscs: CatalogDiscForFilter[],
+  userBrands: string[],
+  maxDiscs: number = 150
+): CatalogDiscForFilter[] {
+  // Normalize brand names for comparison (case-insensitive)
+  const userBrandsLower = userBrands.map((b) => b.toLowerCase());
+  const popularBrandsLower = POPULAR_BRANDS.map((b) => b.toLowerCase());
+
+  // Sort discs: user's brands first, then popular brands, then others
+  const sortedDiscs = [...catalogDiscs].sort((a, b) => {
+    const aManufacturerLower = a.manufacturer.toLowerCase();
+    const bManufacturerLower = b.manufacturer.toLowerCase();
+
+    const aIsUserBrand = userBrandsLower.includes(aManufacturerLower);
+    const bIsUserBrand = userBrandsLower.includes(bManufacturerLower);
+    const aIsPopular = popularBrandsLower.includes(aManufacturerLower);
+    const bIsPopular = popularBrandsLower.includes(bManufacturerLower);
+
+    // User's brands come first
+    if (aIsUserBrand && !bIsUserBrand) return -1;
+    if (!aIsUserBrand && bIsUserBrand) return 1;
+
+    // Then popular brands
+    if (aIsPopular && !bIsPopular) return -1;
+    if (!aIsPopular && bIsPopular) return 1;
+
+    // Within same priority, sort by manufacturer then mold
+    if (a.manufacturer !== b.manufacturer) {
+      return a.manufacturer.localeCompare(b.manufacturer);
+    }
+    return a.mold.localeCompare(b.mold);
+  });
+
+  return sortedDiscs.slice(0, maxDiscs);
 }
 
 // ============== TESTS ==============
@@ -349,13 +418,10 @@ Deno.test('get-disc-recommendations: should return 400 when user has no discs', 
   const userDiscs = getDiscsForUser(mockUser.id);
 
   if (userDiscs.length === 0) {
-    const response = new Response(
-      JSON.stringify({ error: 'No discs in bag. Add discs to get recommendations.' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'No discs in bag. Add discs to get recommendations.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
     assertEquals(response.status, 400);
     const body = await response.json();
     assertEquals(body.error, 'No discs in bag. Add discs to get recommendations.');
@@ -953,8 +1019,8 @@ Deno.test('get-disc-recommendations: analyzeBag should identify missing stabilit
 Deno.test('get-disc-recommendations: generateAffiliateUrl should create valid URL', () => {
   const url = generateAffiliateUrl('Innova', 'Destroyer', 'my-affiliate-123');
 
-  assertEquals(url.startsWith('https://infinitediscs.com/search?'), true);
-  assertEquals(url.includes('s=Innova%20Destroyer'), true);
+  assertEquals(url.startsWith('https://infinitediscs.com/Search-Results?search='), true);
+  assertEquals(url.includes('search=Innova%20Destroyer'), true);
   assertEquals(url.includes('aff=my-affiliate-123'), true);
 });
 
@@ -963,6 +1029,105 @@ Deno.test('get-disc-recommendations: generateAffiliateUrl should handle special 
 
   assertEquals(url.includes('Dynamic%20Discs'), true);
   assertEquals(url.includes('aff=affiliate-id'), true);
+});
+
+Deno.test('get-disc-recommendations: generateAffiliateUrl should work without affiliate ID', () => {
+  const url = generateAffiliateUrl('Innova', 'Destroyer', '');
+
+  assertEquals(url.startsWith('https://infinitediscs.com/Search-Results?search='), true);
+  assertEquals(url.includes('search=Innova%20Destroyer'), true);
+  assertEquals(url.includes('aff='), false);
+});
+
+// ============== CATALOG FILTERING TESTS ==============
+
+Deno.test('get-disc-recommendations: filterAndPrioritizeCatalog should prioritize user brands first', () => {
+  const catalog = [
+    { id: '1', manufacturer: 'Unknown Brand', mold: 'Disc A' },
+    { id: '2', manufacturer: 'Innova', mold: 'Destroyer' },
+    { id: '3', manufacturer: 'Discraft', mold: 'Buzzz' },
+    { id: '4', manufacturer: 'Latitude 64', mold: 'River' },
+  ];
+
+  // User prefers Latitude 64
+  const result = filterAndPrioritizeCatalog(catalog, ['Latitude 64']);
+
+  // Latitude 64 (user's brand) should be first
+  assertEquals(result[0].manufacturer, 'Latitude 64');
+  // Then popular brands (Discraft, Innova)
+  assertEquals(result[1].manufacturer, 'Discraft');
+  assertEquals(result[2].manufacturer, 'Innova');
+  // Unknown brand last
+  assertEquals(result[3].manufacturer, 'Unknown Brand');
+});
+
+Deno.test('get-disc-recommendations: filterAndPrioritizeCatalog should be case-insensitive', () => {
+  const catalog = [
+    { id: '1', manufacturer: 'INNOVA', mold: 'Destroyer' },
+    { id: '2', manufacturer: 'innova', mold: 'Roc3' },
+    { id: '3', manufacturer: 'Unknown', mold: 'Test' },
+  ];
+
+  // User types brand in different case
+  const result = filterAndPrioritizeCatalog(catalog, ['Innova']);
+
+  // Both Innova variants should come before Unknown
+  assertEquals(result[0].manufacturer.toLowerCase(), 'innova');
+  assertEquals(result[1].manufacturer.toLowerCase(), 'innova');
+  assertEquals(result[2].manufacturer, 'Unknown');
+});
+
+Deno.test('get-disc-recommendations: filterAndPrioritizeCatalog should respect maxDiscs limit', () => {
+  const catalog = [
+    { id: '1', manufacturer: 'Innova', mold: 'A' },
+    { id: '2', manufacturer: 'Innova', mold: 'B' },
+    { id: '3', manufacturer: 'Innova', mold: 'C' },
+    { id: '4', manufacturer: 'Innova', mold: 'D' },
+    { id: '5', manufacturer: 'Innova', mold: 'E' },
+  ];
+
+  const result = filterAndPrioritizeCatalog(catalog, ['Innova'], 3);
+
+  assertEquals(result.length, 3);
+});
+
+Deno.test('get-disc-recommendations: filterAndPrioritizeCatalog should put popular brands before unknown', () => {
+  const catalog = [
+    { id: '1', manufacturer: 'Acme Discs', mold: 'Test' },
+    { id: '2', manufacturer: 'MVP', mold: 'Volt' },
+    { id: '3', manufacturer: 'Kastaplast', mold: 'Kaxe' },
+    { id: '4', manufacturer: 'Random Brand', mold: 'Disc' },
+  ];
+
+  // No user brands specified
+  const result = filterAndPrioritizeCatalog(catalog, []);
+
+  // Popular brands (Kastaplast, MVP) should come first (alphabetically sorted)
+  assertEquals(result[0].manufacturer, 'Kastaplast');
+  assertEquals(result[1].manufacturer, 'MVP');
+  // Unknown brands after
+  assertEquals(result[2].manufacturer, 'Acme Discs');
+  assertEquals(result[3].manufacturer, 'Random Brand');
+});
+
+Deno.test('get-disc-recommendations: filterAndPrioritizeCatalog should handle multiple user brands', () => {
+  const catalog = [
+    { id: '1', manufacturer: 'Unknown', mold: 'Test' },
+    { id: '2', manufacturer: 'Innova', mold: 'Destroyer' },
+    { id: '3', manufacturer: 'Discraft', mold: 'Buzzz' },
+    { id: '4', manufacturer: 'MVP', mold: 'Volt' },
+  ];
+
+  // User prefers both Innova and Discraft
+  const result = filterAndPrioritizeCatalog(catalog, ['Innova', 'Discraft']);
+
+  // Both user brands should come first (alphabetically: Discraft, Innova)
+  assertEquals(result[0].manufacturer, 'Discraft');
+  assertEquals(result[1].manufacturer, 'Innova');
+  // Then other popular brand
+  assertEquals(result[2].manufacturer, 'MVP');
+  // Unknown last
+  assertEquals(result[3].manufacturer, 'Unknown');
 });
 
 // ============== ERROR HANDLING TESTS ==============
