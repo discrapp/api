@@ -105,6 +105,26 @@ interface ClaudeVisionResponse {
   }>;
 }
 
+// Popular disc golf brands (well-known manufacturers)
+const POPULAR_BRANDS = [
+  'Innova',
+  'Discraft',
+  'Dynamic Discs',
+  'Latitude 64',
+  'MVP',
+  'Axiom',
+  'Streamline',
+  'Westside Discs',
+  'Kastaplast',
+  'Prodigy',
+  'Discmania',
+  'Trilogy',
+  'Infinite Discs',
+  'Thought Space Athletics',
+  'Mint Discs',
+  'Lone Star Discs',
+];
+
 // Stability classification based on turn + fade
 function classifyStability(turn: number, fade: number): 'understable' | 'stable' | 'overstable' {
   if (turn <= -2) return 'understable';
@@ -208,29 +228,76 @@ function analyzeBag(discs: UserDisc[]): BagAnalysis {
 // Generate Infinite Discs affiliate link
 function generateAffiliateUrl(manufacturer: string, mold: string, affiliateId: string): string {
   const searchQuery = encodeURIComponent(`${manufacturer} ${mold}`);
-  return `https://infinitediscs.com/search?s=${searchQuery}&aff=${affiliateId}`;
+  const baseUrl = `https://infinitediscs.com/Search-Results?search=${searchQuery}`;
+  // Only add affiliate param if it's set
+  if (affiliateId) {
+    return `${baseUrl}&aff=${affiliateId}`;
+  }
+  return baseUrl;
+}
+
+// Filter and prioritize catalog discs based on user's preferences
+function filterAndPrioritizeCatalog(
+  catalogDiscs: CatalogDisc[],
+  userBrands: string[],
+  maxDiscs: number = 150
+): CatalogDisc[] {
+  // Normalize brand names for comparison (case-insensitive)
+  const userBrandsLower = userBrands.map((b) => b.toLowerCase());
+  const popularBrandsLower = POPULAR_BRANDS.map((b) => b.toLowerCase());
+
+  // Sort discs: user's brands first, then popular brands, then others
+  const sortedDiscs = [...catalogDiscs].sort((a, b) => {
+    const aManufacturerLower = a.manufacturer.toLowerCase();
+    const bManufacturerLower = b.manufacturer.toLowerCase();
+
+    const aIsUserBrand = userBrandsLower.includes(aManufacturerLower);
+    const bIsUserBrand = userBrandsLower.includes(bManufacturerLower);
+    const aIsPopular = popularBrandsLower.includes(aManufacturerLower);
+    const bIsPopular = popularBrandsLower.includes(bManufacturerLower);
+
+    // User's brands come first
+    if (aIsUserBrand && !bIsUserBrand) return -1;
+    if (!aIsUserBrand && bIsUserBrand) return 1;
+
+    // Then popular brands
+    if (aIsPopular && !bIsPopular) return -1;
+    if (!aIsPopular && bIsPopular) return 1;
+
+    // Within same priority, sort by manufacturer then mold
+    if (a.manufacturer !== b.manufacturer) {
+      return a.manufacturer.localeCompare(b.manufacturer);
+    }
+    return a.mold.localeCompare(b.mold);
+  });
+
+  return sortedDiscs.slice(0, maxDiscs);
 }
 
 // Build Claude prompt for recommendations
-function buildClaudePrompt(
-  bagAnalysis: BagAnalysis,
-  catalogDiscs: CatalogDisc[],
-  count: number
-): string {
-  const topBrands = bagAnalysis.brand_preferences.slice(0, 3).map((b) => b.manufacturer);
+function buildClaudePrompt(bagAnalysis: BagAnalysis, catalogDiscs: CatalogDisc[], count: number): string {
+  const topBrands = bagAnalysis.brand_preferences.slice(0, 5).map((b) => b.manufacturer);
   const topPlastics = bagAnalysis.plastic_preferences.slice(0, 3).map((p) => p.plastic);
 
   const stabilityMatrix = bagAnalysis.stability_by_category
     .map((s) => `  ${s.category}: understable=${s.understable}, stable=${s.stable}, overstable=${s.overstable}`)
     .join('\n');
 
-  const catalogList = catalogDiscs
-    .slice(0, 100) // Limit to top 100 to avoid token limits
+  // Filter and prioritize catalog to user's brands and popular brands
+  const prioritizedCatalog = filterAndPrioritizeCatalog(catalogDiscs, topBrands, 150);
+
+  const catalogList = prioritizedCatalog
     .map(
       (d) =>
         `- ${d.manufacturer} ${d.mold} (${d.category || 'Unknown'}): ${d.speed}/${d.glide}/${d.turn}/${d.fade} [ID: ${d.id}]`
     )
     .join('\n');
+
+  // Build list of brands to recommend from (user's brands + popular)
+  const brandsToRecommend =
+    topBrands.length > 0
+      ? `User's preferred brands: ${topBrands.join(', ')}\nPopular alternatives: ${POPULAR_BRANDS.slice(0, 8).join(', ')}`
+      : `Recommend from these popular brands: ${POPULAR_BRANDS.slice(0, 10).join(', ')}`;
 
   return `You are an expert disc golf equipment advisor. Analyze this user's bag and recommend ${count} disc(s) to fill gaps.
 
@@ -247,15 +314,18 @@ ${stabilityMatrix || '  No discs with flight numbers'}
 IDENTIFIED GAPS:
 ${bagAnalysis.identified_gaps.map((g) => `- ${g}`).join('\n') || '- None identified'}
 
+BRAND PREFERENCES:
+${brandsToRecommend}
+
 AVAILABLE DISCS TO RECOMMEND FROM:
 ${catalogList}
 
-INSTRUCTIONS:
-1. Recommend exactly ${count} disc(s) to fill the most important gaps
-2. Prioritize: (1) Missing category gaps, (2) Missing stability slots, (3) Speed gaps
-3. When possible, match user's preferred brands
+CRITICAL INSTRUCTIONS (MUST FOLLOW IN ORDER):
+1. **BRAND MATCHING IS MANDATORY**: You MUST recommend discs from the user's preferred brands first. Only recommend from popular alternatives if the user's brands don't have a disc that fills the gap.
+2. Recommend exactly ${count} disc(s) to fill the most important gaps
+3. Gap priorities: (1) Missing category gaps, (2) Missing stability slots, (3) Speed gaps
 4. Each recommendation should fill a DIFFERENT gap
-5. Provide clear reasoning for each recommendation
+5. Provide clear reasoning that mentions why you chose that specific brand/manufacturer
 
 Return ONLY this JSON (no other text):
 {
@@ -264,7 +334,7 @@ Return ONLY this JSON (no other text):
       "catalog_id": "<uuid from catalog>",
       "manufacturer": "<string>",
       "mold": "<string>",
-      "reason": "<2-3 sentence explanation of why this disc fills a gap>",
+      "reason": "<2-3 sentence explanation mentioning the brand choice and why this disc fills a gap>",
       "gap_type": "speed_range|stability|category",
       "priority": <1 to ${count}>
     }
