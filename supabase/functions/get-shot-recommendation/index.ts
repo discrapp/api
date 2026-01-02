@@ -49,6 +49,7 @@ interface UserDisc {
 interface FlightPathCoordinates {
   tee_position: { x: number; y: number };
   basket_position: { x: number; y: number };
+  basket_visible?: boolean;
 }
 
 interface ShotRecommendation {
@@ -111,29 +112,28 @@ Estimate the position of the tee box and basket in the image as percentages (0-1
 - tee_position: Where the photo is taken from (usually bottom center, around x:50, y:85-95)
 - basket_position: Where the DISC GOLF BASKET is located in the image.
 
-BASKET DETECTION - CRITICAL:
-A disc golf basket is a metal target - look for a THIN VERTICAL LINE with a slightly wider top (the chains).
-At distance, it appears as a small stick-like object standing alone on grass.
+BASKET DETECTION - YOU MUST ACTUALLY FIND IT:
+DO NOT just guess where the basket "should be". VISUALLY SCAN the image to FIND the actual basket.
 
-DETECTION STRATEGY:
-1. IDENTIFY HAZARDS FIRST: Note where water/OB is located
-2. SCAN THE SAFE SIDE: If water is on LEFT, scan the RIGHT side of the image for the basket
-   If water is on RIGHT, scan the LEFT side
-3. LOOK ON OPEN GRASS: The basket is ALWAYS on mowed/playable grass, NEVER:
-   - In trees or dense vegetation
-   - In water
-   - In the sky
-   - On walking paths or concrete
-4. FIND THE VERTICAL LINE: Look for a thin vertical object ~3-6 feet tall standing alone
+WHAT TO LOOK FOR:
+The disc golf basket appears as a SMALL VERTICAL OBJECT on the grass. At 300+ feet, it looks like:
+- A thin dark vertical line (the pole) about 1-2% of image height
+- May have a slightly wider top (the chains/cage)
+- Stands ALONE on open grass - not among trees
+- Often near the FAR EDGE of the visible fairway
 
-COMMON MISTAKE TO AVOID:
-Do NOT place the basket where trees are. If you identified "trees on right" as an obstacle,
-the basket is likely BEYOND or AWAY FROM those trees, on open grass.
+SCANNING PROCEDURE (DO THIS):
+1. Look at the RIGHT EDGE of the grassy area - scan for any small vertical object
+2. Look at the LEFT EDGE of the grassy area - scan for any small vertical object
+3. Look along the CENTER of the fairway in the distance
+4. The basket is usually at the BOUNDARY between grass and trees/water, not IN them
 
-POSITION GUIDANCE:
-- If water is on left (x < 40), basket is likely on right (x > 60)
-- If water is on right (x > 60), basket is likely on left (x < 40)
-- Y value: 15-45 for distant baskets, 45-65 for closer ones
+CRITICAL: Report whether you actually FOUND the basket visually:
+- basket_visible: true = "I can see a small vertical object that is the basket"
+- basket_visible: false = "I cannot see the basket, this position is my best estimate"
+
+IF BASKET NOT VISIBLE: Place marker at the far end of the visible fairway, on the side
+AWAY from water hazards (if water on left, place on right edge of grass, x > 70)
 
 Return ONLY this JSON (no other text):
 {
@@ -161,7 +161,8 @@ Return ONLY this JSON (no other text):
   ],
   "flight_path": {
     "tee_position": { "x": <0-100>, "y": <0-100> },
-    "basket_position": { "x": <0-100>, "y": <0-100> }
+    "basket_position": { "x": <0-100>, "y": <0-100> },
+    "basket_visible": <true if you can SEE the basket, false if estimated>
   },
   "analysis_notes": "<brief analysis>"
 }`;
