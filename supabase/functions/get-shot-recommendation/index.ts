@@ -90,10 +90,12 @@ function buildClaudePrompt(discs: UserDisc[], throwingHand: 'right' | 'left'): s
 
   return `Analyze this disc golf hole photo and return ONLY a JSON object. No explanatory text.
 
-FINDING THE BASKET:
-Look for a small vertical object (the basket/target) on the grass. It's a thin pole ~1-2% of image height.
-Scan: far right grass (x:70-95), far left grass (x:5-30), center distance (x:40-60).
-Set basket_visible:true only if you can see it. If not visible, estimate position away from hazards.
+BASKET POSITION RULES:
+- Trees are NOT the basket. The basket is TINY (a few pixels) compared to trees.
+- If water/lake is on LEFT side: basket is at FAR RIGHT edge of grass, x: 85-95
+- If water/lake is on RIGHT side: basket is at FAR LEFT edge of grass, x: 5-15
+- The basket is typically at the END of the visible fairway, past any scattered trees
+- Set basket_visible:false if you cannot identify a specific small metal pole with chains
 
 DISC SELECTION:
 Throwing hand: ${throwingHand} (backhand fades ${throwingHand === 'right' ? 'left' : 'right'})
