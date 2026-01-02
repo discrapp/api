@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts';
+import ExifReader from 'https://esm.sh/exifreader@4.14.1';
 import { withSentry } from '../_shared/with-sentry.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
 
@@ -22,6 +23,7 @@ import { setUser, captureException } from '../_shared/sentry.ts';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const NEARBY_RADIUS_METERS = 4.57; // 15 feet in meters
 
 interface ClaudeVisionResponse {
   content: Array<{
@@ -52,6 +54,102 @@ interface FlightPathCoordinates {
   basket_visible?: boolean;
 }
 
+interface GpsCoordinates {
+  latitude: number;
+  longitude: number;
+}
+
+interface NearbyCorrection {
+  corrected_tee_position: { x: number; y: number };
+  corrected_basket_position: { x: number; y: number };
+}
+
+/**
+ * Extracts GPS coordinates from image EXIF data
+ */
+function extractGpsFromExif(arrayBuffer: ArrayBuffer): GpsCoordinates | null {
+  try {
+    const tags = ExifReader.load(arrayBuffer);
+
+    const latitudeTag = tags['GPSLatitude'];
+    const longitudeTag = tags['GPSLongitude'];
+    const latitudeRef = tags['GPSLatitudeRef'];
+    const longitudeRef = tags['GPSLongitudeRef'];
+
+    if (!latitudeTag || !longitudeTag) {
+      return null;
+    }
+
+    // ExifReader returns the value in degrees as a number
+    let latitude = latitudeTag.description ? parseFloat(latitudeTag.description as string) : null;
+    let longitude = longitudeTag.description ? parseFloat(longitudeTag.description as string) : null;
+
+    if (latitude === null || longitude === null || isNaN(latitude) || isNaN(longitude)) {
+      return null;
+    }
+
+    // Apply reference direction
+    const latRef = latitudeRef?.value;
+    const lonRef = longitudeRef?.value;
+    if (typeof latRef === 'string' && latRef === 'S') {
+      latitude = -latitude;
+    } else if (Array.isArray(latRef) && latRef[0] === 'S') {
+      latitude = -latitude;
+    }
+    if (typeof lonRef === 'string' && lonRef === 'W') {
+      longitude = -longitude;
+    } else if (Array.isArray(lonRef) && lonRef[0] === 'W') {
+      longitude = -longitude;
+    }
+
+    return { latitude, longitude };
+  } catch (error) {
+    console.error('EXIF extraction error:', error);
+    return null;
+  }
+}
+
+/**
+ * Calculates distance between two GPS coordinates in meters using Haversine formula
+ */
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
+ * Calculates the average of multiple position corrections
+ */
+function averageCorrections(corrections: NearbyCorrection[]): NearbyCorrection {
+  const count = corrections.length;
+  const sumTee = { x: 0, y: 0 };
+  const sumBasket = { x: 0, y: 0 };
+
+  for (const c of corrections) {
+    sumTee.x += c.corrected_tee_position.x;
+    sumTee.y += c.corrected_tee_position.y;
+    sumBasket.x += c.corrected_basket_position.x;
+    sumBasket.y += c.corrected_basket_position.y;
+  }
+
+  return {
+    corrected_tee_position: {
+      x: Math.round((sumTee.x / count) * 10) / 10,
+      y: Math.round((sumTee.y / count) * 10) / 10,
+    },
+    corrected_basket_position: {
+      x: Math.round((sumBasket.x / count) * 10) / 10,
+      y: Math.round((sumBasket.y / count) * 10) / 10,
+    },
+  };
+}
+
 interface ShotRecommendation {
   estimated_distance_ft: number;
   confidence: number;
@@ -77,7 +175,11 @@ interface ShotRecommendation {
   analysis_notes: string;
 }
 
-function buildClaudePrompt(discs: UserDisc[], throwingHand: 'right' | 'left'): string {
+function buildClaudePrompt(
+  discs: UserDisc[],
+  throwingHand: 'right' | 'left',
+  nearbyCorrection?: NearbyCorrection
+): string {
   const discList = discs
     .map((d) => {
       const name = d.mold || d.name || 'Unknown';
@@ -88,8 +190,19 @@ function buildClaudePrompt(discs: UserDisc[], throwingHand: 'right' | 'left'): s
     })
     .join('\n');
 
-  return `Analyze this disc golf hole photo and return ONLY a JSON object. No explanatory text.
+  // Build position hint from nearby corrections
+  const positionHint = nearbyCorrection
+    ? `
+IMPORTANT - LEARNED POSITION DATA:
+Previous users at this exact location have corrected the positions to:
+- Tee position: x=${nearbyCorrection.corrected_tee_position.x}, y=${nearbyCorrection.corrected_tee_position.y}
+- Basket position: x=${nearbyCorrection.corrected_basket_position.x}, y=${nearbyCorrection.corrected_basket_position.y}
+Use these as your starting point, but adjust if the photo perspective is clearly different.
+`
+    : '';
 
+  return `Analyze this disc golf hole photo and return ONLY a JSON object. No explanatory text.
+${positionHint}
 BASKET POSITION RULES:
 - Trees are NOT the basket. The basket is TINY (a few pixels) compared to trees.
 - If water/lake is on LEFT: basket x: 90-95 (very far right edge), y: 40-50 (grass horizon)
@@ -289,8 +402,55 @@ const handler = async (req: Request): Promise<Response> => {
     // Map MIME type to Claude's expected format
     const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/webp';
 
-    // Build prompt with user's disc bag
-    const prompt = buildClaudePrompt(userDiscs, throwingHand);
+    // Extract GPS coordinates from EXIF data
+    const gpsCoords = extractGpsFromExif(arrayBuffer);
+
+    // Query for nearby corrections if we have GPS data
+    let nearbyCorrection: NearbyCorrection | undefined;
+    if (gpsCoords) {
+      // Calculate bounding box for initial filtering (~50m to be safe, then filter by distance)
+      const latDelta = 0.0005; // ~55m
+      const lonDelta = 0.0005 / Math.cos((gpsCoords.latitude * Math.PI) / 180);
+
+      const { data: nearbyLogs } = await supabaseAdmin
+        .from('shot_recommendation_logs')
+        .select('photo_latitude, photo_longitude, corrected_tee_position, corrected_basket_position')
+        .not('corrected_tee_position', 'is', null)
+        .not('corrected_basket_position', 'is', null)
+        .not('photo_latitude', 'is', null)
+        .not('photo_longitude', 'is', null)
+        .gte('photo_latitude', gpsCoords.latitude - latDelta)
+        .lte('photo_latitude', gpsCoords.latitude + latDelta)
+        .gte('photo_longitude', gpsCoords.longitude - lonDelta)
+        .lte('photo_longitude', gpsCoords.longitude + lonDelta);
+
+      if (nearbyLogs && nearbyLogs.length > 0) {
+        // Filter by actual distance (15 feet / 4.57m)
+        const nearbyCorrections = nearbyLogs.filter((log) => {
+          const distance = haversineDistance(
+            gpsCoords.latitude,
+            gpsCoords.longitude,
+            log.photo_latitude!,
+            log.photo_longitude!
+          );
+          return distance <= NEARBY_RADIUS_METERS;
+        });
+
+        if (nearbyCorrections.length > 0) {
+          // Average the corrections from nearby photos
+          nearbyCorrection = averageCorrections(
+            nearbyCorrections.map((log) => ({
+              corrected_tee_position: log.corrected_tee_position as { x: number; y: number },
+              corrected_basket_position: log.corrected_basket_position as { x: number; y: number },
+            }))
+          );
+          console.log(`Found ${nearbyCorrections.length} nearby corrections within 15ft, using averaged positions`);
+        }
+      }
+    }
+
+    // Build prompt with user's disc bag and any nearby corrections
+    const prompt = buildClaudePrompt(userDiscs, throwingHand, nearbyCorrection);
 
     // Call Claude Vision API
     const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
@@ -395,7 +555,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Find the recommended disc details
     const recommendedDisc = userDiscs.find((d) => d.id === recommendation.recommendation.disc_id);
 
-    // Log the recommendation
+    // Log the recommendation (include GPS if available)
     const { data: logData, error: logError } = await supabaseAdmin
       .from('shot_recommendation_logs')
       .insert({
@@ -411,6 +571,8 @@ const handler = async (req: Request): Promise<Response> => {
         alternative_recommendations: recommendation.alternatives,
         processing_time_ms: processingTime,
         model_version: 'claude-sonnet-4-20250514',
+        photo_latitude: gpsCoords?.latitude ?? null,
+        photo_longitude: gpsCoords?.longitude ?? null,
       })
       .select('id')
       .single();
