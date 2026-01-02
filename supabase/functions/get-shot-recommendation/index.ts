@@ -88,45 +88,19 @@ function buildClaudePrompt(discs: UserDisc[], throwingHand: 'right' | 'left'): s
     })
     .join('\n');
 
-  return `You are an expert disc golf caddy. BEFORE analyzing anything else, you must FIND THE BASKET.
+  return `Analyze this disc golf hole photo and return ONLY a JSON object. No explanatory text.
 
-===== STEP 1: FIND THE BASKET (DO THIS FIRST) =====
-Look at the image and find the disc golf basket. It appears as a SMALL VERTICAL OBJECT:
-- Thin pole (yellow, silver, or dark) standing on grass
-- About 1-2% of image height at 300+ feet distance
-- Has chains hanging from top (may look like slight widening at top)
-- Stands ALONE - not among trees, not in water
+FINDING THE BASKET:
+Look for a small vertical object (the basket/target) on the grass. It's a thin pole ~1-2% of image height.
+Scan: far right grass (x:70-95), far left grass (x:5-30), center distance (x:40-60).
+Set basket_visible:true only if you can see it. If not visible, estimate position away from hazards.
 
-SCAN THE IMAGE NOW:
-- Check the FAR RIGHT of the grassy area (x: 70-95)
-- Check the FAR LEFT of the grassy area (x: 5-30)
-- Check the CENTER in the distance (x: 40-60)
-- The basket is on GRASS at the FAR END of the fairway
-
-When you find it, note the EXACT x,y position as percentages.
-If you cannot find it, set basket_visible: false.
-
-===== STEP 2: ANALYZE TERRAIN =====
-- Distance estimate (use basket size and tree heights ~50-80ft as reference)
-- Elevation change (uphill/downhill/flat)
-- Obstacles (water, trees, OB)
-- Fairway shape
-
-===== STEP 3: RECOMMEND SHOT =====
-USER'S THROWING HAND: ${throwingHand}
-(For ${throwingHand}-handed backhand: discs fade ${throwingHand === 'right' ? 'left' : 'right'})
-
-USER'S DISC BAG:
+DISC SELECTION:
+Throwing hand: ${throwingHand} (backhand fades ${throwingHand === 'right' ? 'left' : 'right'})
+Available discs:
 ${discList}
 
-Choose the best disc and throw type. Power percentage is 50-100%.
-
-===== OUTPUT FORMAT =====
-- tee_position: Usually bottom center (x:50, y:85-95)
-- basket_position: The EXACT position where you found the basket
-- basket_visible: true ONLY if you can point to a specific vertical object
-
-Return ONLY this JSON (no other text):
+RESPOND WITH ONLY THIS JSON:
 {
   "estimated_distance_ft": <number>,
   "confidence": <0.0-1.0>,
