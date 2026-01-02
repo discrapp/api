@@ -112,26 +112,28 @@ Estimate the position of the tee box and basket in the image as percentages (0-1
 - basket_position: Where the DISC GOLF BASKET is located in the image.
 
 BASKET DETECTION - CRITICAL:
-A disc golf basket is a metal target with these features:
-- Vertical metal pole (usually yellow or silver)
-- Chains hanging down in a circular pattern from the top
-- Metal band/cage around the chains
-- Sits on a base on the ground
-- Often has a flag or number sign nearby
+A disc golf basket is a metal target - look for a THIN VERTICAL LINE with a slightly wider top (the chains).
+At distance, it appears as a small stick-like object standing alone on grass.
 
-STEP 1: SCAN THE ENTIRE IMAGE for the disc golf basket. Look carefully - it may be:
-- Small in the distance (appears as a thin vertical object with chains)
-- Partially obscured by trees or terrain
-- On the left, right, or center of the image
+DETECTION STRATEGY:
+1. IDENTIFY HAZARDS FIRST: Note where water/OB is located
+2. SCAN THE SAFE SIDE: If water is on LEFT, scan the RIGHT side of the image for the basket
+   If water is on RIGHT, scan the LEFT side
+3. LOOK ON OPEN GRASS: The basket is ALWAYS on mowed/playable grass, NEVER:
+   - In trees or dense vegetation
+   - In water
+   - In the sky
+   - On walking paths or concrete
+4. FIND THE VERTICAL LINE: Look for a thin vertical object ~3-6 feet tall standing alone
 
-STEP 2: If you FIND the basket, mark its EXACT position (x, y percentages)
-STEP 3: If you CANNOT find the basket, estimate based on fairway direction
+COMMON MISTAKE TO AVOID:
+Do NOT place the basket where trees are. If you identified "trees on right" as an obstacle,
+the basket is likely BEYOND or AWAY FROM those trees, on open grass.
 
-RULES:
-1. PRIORITIZE finding the actual basket over inferring position
-2. The basket is NEVER in water, dense trees, or sky
-3. Look for the distinctive chain/pole silhouette
-4. Y value is typically 10-60 depending on distance (further = lower Y value)
+POSITION GUIDANCE:
+- If water is on left (x < 40), basket is likely on right (x > 60)
+- If water is on right (x > 60), basket is likely on left (x < 40)
+- Y value: 15-45 for distant baskets, 45-65 for closer ones
 
 Return ONLY this JSON (no other text):
 {
