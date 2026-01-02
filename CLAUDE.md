@@ -554,6 +554,15 @@ This project maintains ~95%+ test coverage for all application code. See
 ./scripts/test-coverage.sh
 ```
 
+## Cross-Repository Updates
+
+When adding new API endpoints or database tables, consider updating related repos:
+
+- **Admin Dashboard** (`admin/`): Add admin views for new data tables
+  - Create list/detail pages for new database tables (e.g., logs, orders)
+  - Add analytics dashboards for new features
+  - Update navigation to include new sections
+
 ## References
 
 - @README.md - Repository overview
@@ -564,7 +573,7 @@ This project maintains ~95%+ test coverage for all application code. See
 
 ---
 
-**Last Updated:** 2025-12-26
+**Last Updated:** 2026-01-02
 
 This file should be updated whenever:
 
