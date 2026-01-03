@@ -18,6 +18,8 @@ describe('schema type inference', () => {
       email: 'test@example.com',
       full_name: null,
       avatar_url: null,
+      phone_number: null,
+      phone_discoverable: false,
       created_at: new Date(),
       updated_at: new Date(),
     };
