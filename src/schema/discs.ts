@@ -43,6 +43,7 @@ export const discs = pgTable('discs', {
   plastic: text('plastic'),
   weight: integer('weight'),
   color: text('color'),
+  category: text('category'),
   flight_numbers: jsonb('flight_numbers').$type<FlightNumbers>().notNull(),
   reward_amount: numeric('reward_amount', { precision: 10, scale: 2 }),
   notes: text('notes'),

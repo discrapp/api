@@ -18,6 +18,7 @@ interface UpdateDiscRequest {
   plastic?: string;
   weight?: number;
   color?: string;
+  category?: string;
   flight_numbers?: FlightNumbers;
   reward_amount?: number;
   notes?: string;
@@ -145,6 +146,7 @@ const handler = async (req: Request): Promise<Response> => {
   if (body.plastic !== undefined) updateData.plastic = body.plastic;
   if (body.weight !== undefined) updateData.weight = body.weight;
   if (body.color !== undefined) updateData.color = body.color;
+  if (body.category !== undefined) updateData.category = body.category;
   if (body.flight_numbers !== undefined) updateData.flight_numbers = body.flight_numbers;
   if (body.reward_amount !== undefined) updateData.reward_amount = body.reward_amount;
   if (body.notes !== undefined) updateData.notes = body.notes;

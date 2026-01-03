@@ -18,6 +18,7 @@ interface CreateDiscRequest {
   plastic?: string;
   weight?: number;
   color?: string;
+  category?: string;
   flight_numbers: FlightNumbers;
   reward_amount?: number;
   notes?: string;
@@ -110,6 +111,7 @@ const handler = async (req: Request): Promise<Response> => {
       plastic: body.plastic,
       weight: body.weight,
       color: body.color,
+      category: body.category,
       flight_numbers: body.flight_numbers,
       reward_amount: body.reward_amount,
       notes: body.notes,
