@@ -563,6 +563,314 @@ When adding new API endpoints or database tables, consider updating related repo
   - Add analytics dashboards for new features
   - Update navigation to include new sections
 
+---
+
+## Implementation Patterns (For Claude)
+
+### Drizzle Schema Pattern
+
+```typescript
+// src/schema/discs.ts
+import { pgTable, text, timestamp, uuid, integer, jsonb, numeric } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { profiles } from './profiles';
+
+export interface FlightNumbers {
+  speed: number;      // 1-14
+  glide: number;      // 1-7
+  turn: number;       // -5 to 1
+  fade: number;       // 0-5
+}
+
+export const discs = pgTable('discs', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`).notNull(),
+  owner_id: uuid('owner_id')
+    .references(/* c8 ignore next */ () => profiles.id, { onDelete: 'cascade' })
+    .notNull(),
+  name: text('name').notNull(),
+  manufacturer: text('manufacturer'),
+  mold: text('mold'),
+  plastic: text('plastic'),
+  weight: integer('weight'),
+  color: text('color'),
+  flight_numbers: jsonb('flight_numbers').$type<FlightNumbers>().notNull(),
+  reward_amount: numeric('reward_amount', { precision: 10, scale: 2 }),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Type inference (automatic)
+export type Disc = typeof discs.$inferSelect;
+export type NewDisc = typeof discs.$inferInsert;
+
+// Validation function
+export function validateFlightNumbers(fn: FlightNumbers): void {
+  if (fn.speed < 1 || fn.speed > 14) throw new Error('Speed must be 1-14');
+  if (fn.glide < 1 || fn.glide > 7) throw new Error('Glide must be 1-7');
+  if (fn.turn < -5 || fn.turn > 1) throw new Error('Turn must be -5 to 1');
+  if (fn.fade < 0 || fn.fade > 5) throw new Error('Fade must be 0-5');
+}
+```
+
+### Schema Test Pattern (Jest)
+
+```typescript
+// src/schema/discs.test.ts
+import { discs, validateFlightNumbers, type FlightNumbers } from './discs';
+import { getTableColumns, getTableName } from 'drizzle-orm';
+
+describe('discs schema', () => {
+  it('should have the correct table name', () => {
+    expect(getTableName(discs)).toBe('discs');
+  });
+
+  it('should have all required columns', () => {
+    const columns = getTableColumns(discs);
+    expect(Object.keys(columns)).toContain('id');
+    expect(Object.keys(columns)).toContain('owner_id');
+    expect(Object.keys(columns)).toContain('name');
+  });
+
+  it('should validate flight numbers', () => {
+    const valid: FlightNumbers = { speed: 7, glide: 5, turn: 0, fade: 1 };
+    expect(() => validateFlightNumbers(valid)).not.toThrow();
+
+    expect(() => validateFlightNumbers({ speed: 0, glide: 5, turn: 0, fade: 1 }))
+      .toThrow('Speed must be 1-14');
+  });
+});
+```
+
+### Edge Function Pattern
+
+```typescript
+// supabase/functions/create-disc/index.ts
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withSentry } from '../_shared/with-sentry.ts';
+import { methodNotAllowed, unauthorized, badRequest, internalError, ErrorCode } from '../_shared/error-response.ts';
+import { setUser, captureException } from '../_shared/sentry.ts';
+
+interface CreateDiscRequest {
+  mold: string;
+  manufacturer?: string;
+  flight_numbers: { speed: number; glide: number; turn: number; fade: number };
+}
+
+const handler = async (req: Request): Promise<Response> => {
+  // 1. Check method
+  if (req.method !== 'POST') return methodNotAllowed();
+
+  // 2. Get auth
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) return unauthorized('Missing authorization header');
+
+  // 3. Create Supabase client
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+
+  // 4. Authenticate
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return unauthorized('Unauthorized', ErrorCode.INVALID_AUTH);
+
+  setUser(user.id); // Set Sentry context
+
+  // 5. Parse body
+  let body: CreateDiscRequest;
+  try {
+    body = await req.json();
+  } catch {
+    return badRequest('Invalid JSON', ErrorCode.INVALID_JSON);
+  }
+
+  // 6. Validate
+  if (!body.mold?.trim()) {
+    return badRequest('Mold is required', ErrorCode.MISSING_FIELD, { field: 'mold' });
+  }
+
+  // 7. Execute
+  try {
+    const { data: disc, error } = await supabase
+      .from('discs')
+      .insert({ owner_id: user.id, name: body.mold, mold: body.mold, ...body })
+      .select()
+      .single();
+
+    if (error) {
+      captureException(error, { operation: 'create-disc', userId: user.id });
+      return internalError('Failed to create disc', ErrorCode.DATABASE_ERROR);
+    }
+
+    return new Response(JSON.stringify(disc), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    captureException(error, { operation: 'create-disc', userId: user.id });
+    return internalError('Internal server error');
+  }
+};
+
+Deno.serve(withSentry(handler)); // ALWAYS wrap with withSentry
+```
+
+### Edge Function Test Pattern (Deno)
+
+```typescript
+// supabase/functions/create-disc/index.test.ts
+import { assertEquals, assertExists } from 'jsr:@std/assert';
+
+type MockUser = { id: string; email: string };
+type MockDisc = { id: string; owner_id: string; name: string };
+
+let mockUser: MockUser | null = null;
+let mockDiscs: MockDisc[] = [];
+
+function resetMocks() {
+  mockUser = null;
+  mockDiscs = [];
+}
+
+function mockSupabaseClient() {
+  return {
+    auth: {
+      getUser: () => Promise.resolve({
+        data: { user: mockUser },
+        error: mockUser ? null : { message: 'Not authenticated' },
+      }),
+    },
+    from: (table: string) => ({
+      insert: (values: Record<string, unknown>) => ({
+        select: () => ({
+          single: async () => {
+            if (table === 'discs') {
+              const newDisc: MockDisc = {
+                id: `disc-${Date.now()}`,
+                owner_id: mockUser?.id || '',
+                name: (values as { name: string }).name,
+              };
+              mockDiscs.push(newDisc);
+              return { data: newDisc, error: null };
+            }
+            return { data: null, error: { message: 'Unknown table' } };
+          },
+        }),
+      }),
+    }),
+  };
+}
+
+Deno.test('create-disc: returns 401 when not authenticated', async () => {
+  resetMocks();
+  // Test implementation...
+});
+
+Deno.test('create-disc: creates disc successfully', async () => {
+  resetMocks();
+  mockUser = { id: 'user-1', email: 'test@example.com' };
+
+  const client = mockSupabaseClient();
+  const { data } = await client.from('discs').insert({
+    owner_id: mockUser.id,
+    name: 'Destroyer',
+  }).select().single();
+
+  assertExists(data);
+  assertEquals(data?.name, 'Destroyer');
+});
+```
+
+### Error Response Pattern
+
+```typescript
+// supabase/functions/_shared/error-response.ts
+export const ErrorCode = {
+  INVALID_REQUEST: 'INVALID_REQUEST',
+  INVALID_JSON: 'INVALID_JSON',
+  MISSING_FIELD: 'MISSING_FIELD',
+  MISSING_AUTH: 'MISSING_AUTH',
+  INVALID_AUTH: 'INVALID_AUTH',
+  NOT_FOUND: 'NOT_FOUND',
+  DATABASE_ERROR: 'DATABASE_ERROR',
+} as const;
+
+// Usage:
+return badRequest('Email is required', ErrorCode.MISSING_FIELD, { field: 'email' });
+return unauthorized('Invalid token', ErrorCode.INVALID_AUTH);
+return notFound('Disc not found', ErrorCode.NOT_FOUND);
+return internalError('Database error', ErrorCode.DATABASE_ERROR);
+```
+
+### File Map - Where to Edit
+
+| Task | Files to Edit |
+|------|---------------|
+| Add new table | `src/schema/[name].ts`, `src/schema/[name].test.ts`, `src/schema/index.ts` |
+| Add new endpoint | `supabase/functions/[name]/index.ts`, `supabase/functions/[name]/index.test.ts` |
+| Add shared utility | `supabase/functions/_shared/[name].ts` |
+| Add migration | Run `supabase migration new [name]`, edit SQL file |
+| Add enum | In schema file: `export const statusEnum = pgEnum('status', ['a', 'b'])` |
+
+### Adding a New Edge Function
+
+1. Create directory and files:
+
+```bash
+mkdir supabase/functions/my-endpoint
+touch supabase/functions/my-endpoint/index.ts
+touch supabase/functions/my-endpoint/index.test.ts
+echo '{}' > supabase/functions/my-endpoint/deno.json
+```
+
+2. Write test FIRST (TDD):
+
+```typescript
+// index.test.ts
+Deno.test('my-endpoint: returns 405 for non-POST', async () => {
+  // Test implementation
+});
+```
+
+3. Implement handler following the pattern above
+
+4. Run tests:
+
+```bash
+deno test --allow-all supabase/functions/my-endpoint/
+```
+
+### Adding a New Database Table
+
+1. Create schema file with tests (TDD):
+
+```typescript
+// src/schema/my-table.ts
+export const myTable = pgTable('my_table', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`).notNull(),
+  name: text('name').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type MyTable = typeof myTable.$inferSelect;
+export type NewMyTable = typeof myTable.$inferInsert;
+```
+
+2. Export from index:
+
+```typescript
+// src/schema/index.ts
+export * from './my-table';
+```
+
+3. Generate migration:
+
+```bash
+npm run db:generate
+```
+
 ## References
 
 - @README.md - Repository overview
