@@ -61,6 +61,7 @@ describe('schema type inference', () => {
       plastic: null,
       weight: null,
       color: null,
+      category: null,
       flight_numbers: { speed: 12, glide: 5, turn: -1, fade: 3 },
       reward_amount: null,
       notes: null,
