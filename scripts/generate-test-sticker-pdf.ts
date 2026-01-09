@@ -41,8 +41,8 @@ const STICKERS_PER_COL = 5;
 const APP_URL = 'https://discrapp.com/d';
 
 // Generate random short codes using the same algorithm as production
-// Mixed-case alphabet excluding ambiguous characters (0, O, o, 1, l, I, i)
-const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+// Uppercase alphabet excluding ambiguous characters (0, O, 1, I)
+const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const SHORT_CODE_LENGTH = 12;
 
 function generateTestCode(): string {
