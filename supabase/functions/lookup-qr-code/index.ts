@@ -191,16 +191,24 @@ const handler = async (req: Request): Promise<Response> => {
   let ownerDisplayName = 'Anonymous';
   const isClaimable = disc.owner_id === null;
 
-  // Type the owner profile - Supabase returns array for FK relations
-  // but for one-to-one we take the first element
+  // Type the owner profile - Supabase returns different shapes depending on relationship
+  // For belongs-to (one-to-one), it can return a single object or an array with one element
   type OwnerProfile = {
     email: string;
     username: string | null;
     full_name: string | null;
     display_preference: string | null;
   };
-  const ownerProfile: OwnerProfile | null =
-    disc.owner && Array.isArray(disc.owner) && disc.owner.length > 0 ? (disc.owner[0] as OwnerProfile) : null;
+  let ownerProfile: OwnerProfile | null = null;
+  if (disc.owner) {
+    if (Array.isArray(disc.owner) && disc.owner.length > 0) {
+      // Supabase returned an array (sometimes happens with explicit FK syntax)
+      ownerProfile = disc.owner[0] as OwnerProfile;
+    } else if (typeof disc.owner === 'object' && !Array.isArray(disc.owner)) {
+      // Supabase returned a single object (typical for belongs-to relationships)
+      ownerProfile = disc.owner as OwnerProfile;
+    }
+  }
 
   if (isClaimable) {
     ownerDisplayName = 'No Owner - Available to Claim';
