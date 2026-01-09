@@ -89,6 +89,7 @@ const handler = async (req: Request): Promise<Response> => {
       pdf_storage_path,
       created_at,
       updated_at,
+      paid_at,
       printed_at,
       shipped_at,
       shipping_address:shipping_addresses(

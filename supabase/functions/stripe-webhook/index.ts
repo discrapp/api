@@ -165,12 +165,14 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Update order status to paid
+      const now = new Date().toISOString();
       const { data: updatedOrder, error: updateError } = await supabaseAdmin
         .from('sticker_orders')
         .update({
           status: 'paid',
+          paid_at: now,
           stripe_payment_intent_id: session.payment_intent as string,
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         })
         .eq('id', orderId)
         .eq('stripe_checkout_session_id', session.id)
