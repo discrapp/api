@@ -31,6 +31,7 @@ type MockStickerOrder = {
   order_number?: string;
   stripe_checkout_session_id?: string | null;
   stripe_payment_intent_id?: string | null;
+  paid_at?: string | null;
   updated_at?: string;
 };
 
@@ -673,12 +674,14 @@ Deno.test('stripe-webhook: checkout.session.completed should update sticker orde
   };
 
   // Update order status to paid
+  const now = new Date().toISOString();
   const { data: updatedOrder } = await supabase
     .from('sticker_orders')
     .update({
       status: 'paid',
+      paid_at: now,
       stripe_payment_intent_id: session.payment_intent,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
     .eq('id', session.metadata.order_id!)
     .eq('stripe_checkout_session_id', session.id)
@@ -688,6 +691,7 @@ Deno.test('stripe-webhook: checkout.session.completed should update sticker orde
   assertExists(updatedOrder);
   assertEquals(updatedOrder.status, 'paid');
   assertEquals(updatedOrder.stripe_payment_intent_id, 'pi_test_123');
+  assertExists(updatedOrder.paid_at);
 });
 
 Deno.test('stripe-webhook: checkout.session.completed should return 500 when order update fails', async () => {
@@ -740,12 +744,14 @@ Deno.test('stripe-webhook: checkout.session.completed should return 500 when ord
   assertExists(order);
 
   // Simulate the update failing
+  const failNow = new Date().toISOString();
   const { error: updateError } = await supabase
     .from('sticker_orders')
     .update({
       status: 'paid',
+      paid_at: failNow,
       stripe_payment_intent_id: 'pi_test_123',
-      updated_at: new Date().toISOString(),
+      updated_at: failNow,
     })
     .eq('id', order.id)
     .eq('stripe_checkout_session_id', testCheckoutSessionId)
@@ -811,12 +817,14 @@ Deno.test('stripe-webhook: checkout.session.completed should trigger fulfillment
   assertExists(order);
 
   // Simulate order update
+  const fulfillNow = new Date().toISOString();
   const { data: updatedOrder } = await supabase
     .from('sticker_orders')
     .update({
       status: 'paid',
+      paid_at: fulfillNow,
       stripe_payment_intent_id: 'pi_test_fulfillment',
-      updated_at: new Date().toISOString(),
+      updated_at: fulfillNow,
     })
     .eq('id', order.id)
     .eq('stripe_checkout_session_id', testCheckoutSessionId)
@@ -825,6 +833,7 @@ Deno.test('stripe-webhook: checkout.session.completed should trigger fulfillment
 
   assertExists(updatedOrder);
   assertEquals(updatedOrder.status, 'paid');
+  assertExists(updatedOrder.paid_at);
 
   // In the real handler, this would trigger:
   // 1. generate-order-qr-codes
