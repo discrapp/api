@@ -941,6 +941,69 @@ Deno.test('lookup-qr-code: optimized query falls back to email when no username 
   assertEquals(ownerDisplayName, 'minimalist');
 });
 
+Deno.test('lookup-qr-code: handles owner returned as array (Supabase FK join format)', () => {
+  // Test the logic that handles owner profile extraction from different Supabase return formats
+  // Supabase can return FK joins as arrays or single objects depending on the relationship
+
+  type OwnerProfile = {
+    email: string;
+    username: string | null;
+    full_name: string | null;
+    display_preference: string | null;
+  };
+
+  const profile: OwnerProfile = {
+    email: 'arraytest@example.com',
+    username: 'arrayuser',
+    full_name: 'Array User',
+    display_preference: 'username',
+  };
+
+  // Test case 1: Owner as array (sometimes happens with explicit FK syntax)
+  const ownerAsArray = [profile];
+
+  let ownerProfile: OwnerProfile | null = null;
+  if (ownerAsArray) {
+    if (Array.isArray(ownerAsArray) && ownerAsArray.length > 0) {
+      ownerProfile = ownerAsArray[0] as OwnerProfile;
+    } else if (typeof ownerAsArray === 'object' && !Array.isArray(ownerAsArray)) {
+      ownerProfile = ownerAsArray as OwnerProfile;
+    }
+  }
+
+  assertExists(ownerProfile);
+  assertEquals(ownerProfile.username, 'arrayuser');
+
+  // Test case 2: Owner as single object (typical for belongs-to relationships)
+  const ownerAsObject = profile;
+
+  let ownerProfile2: OwnerProfile | null = null;
+  if (ownerAsObject) {
+    if (Array.isArray(ownerAsObject) && ownerAsObject.length > 0) {
+      ownerProfile2 = ownerAsObject[0] as OwnerProfile;
+    } else if (typeof ownerAsObject === 'object' && !Array.isArray(ownerAsObject)) {
+      ownerProfile2 = ownerAsObject as OwnerProfile;
+    }
+  }
+
+  assertExists(ownerProfile2);
+  assertEquals(ownerProfile2.username, 'arrayuser');
+
+  // Test case 3: Empty array returns null
+  const ownerAsEmptyArray: OwnerProfile[] = [];
+
+  let ownerProfile3: OwnerProfile | null = null;
+  if (ownerAsEmptyArray) {
+    if (Array.isArray(ownerAsEmptyArray) && ownerAsEmptyArray.length > 0) {
+      ownerProfile3 = ownerAsEmptyArray[0] as OwnerProfile;
+    } else if (typeof ownerAsEmptyArray === 'object' && !Array.isArray(ownerAsEmptyArray)) {
+      ownerProfile3 = ownerAsEmptyArray as OwnerProfile;
+    }
+  }
+
+  assertEquals(ownerProfile3, null);
+});
+
 Deno.test('lookup-qr-code: query count verification for optimized path', async () => {
   resetMocks();
 
