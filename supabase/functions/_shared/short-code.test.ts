@@ -7,7 +7,7 @@ Deno.test('generateShortCode: should generate 12 character code', () => {
 });
 
 Deno.test('generateShortCode: should only contain valid characters', () => {
-  const validChars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const validChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   for (let i = 0; i < 100; i++) {
     const code = generateShortCode();
@@ -33,27 +33,25 @@ Deno.test('generateShortCode: should generate different codes each time', () => 
   for (let i = 0; i < 100; i++) {
     codes.add(generateShortCode());
   }
-  // With 12 character codes from 55 characters, collision probability is extremely low
+  // With 12 character codes from 32 characters, collision probability is extremely low
   // We expect all 100 codes to be unique
   assertEquals(codes.size, 100, `Expected 100 unique codes, got ${codes.size}`);
 });
 
-Deno.test('generateShortCode: should use mixed case characters', () => {
-  // Generate enough codes to statistically guarantee mixed case
+Deno.test('generateShortCode: should use uppercase characters only', () => {
+  // Generate codes and verify they are uppercase only
   let hasUpper = false;
-  let hasLower = false;
   let hasNumber = false;
 
   for (let i = 0; i < 100; i++) {
     const code = generateShortCode();
+    // Verify no lowercase letters
+    assertEquals(/[a-z]/.test(code), false, 'Should not contain lowercase letters');
     if (/[A-Z]/.test(code)) hasUpper = true;
-    if (/[a-z]/.test(code)) hasLower = true;
     if (/[0-9]/.test(code)) hasNumber = true;
-    if (hasUpper && hasLower && hasNumber) break;
   }
 
   assertEquals(hasUpper, true, 'Should contain uppercase letters');
-  assertEquals(hasLower, true, 'Should contain lowercase letters');
   assertEquals(hasNumber, true, 'Should contain numbers');
 });
 
