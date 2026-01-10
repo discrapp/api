@@ -110,8 +110,9 @@ const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  // Get the disc associated with this QR code (using user's JWT for RLS)
-  const { data: disc, error: discError } = await supabase
+  // Get the disc associated with this QR code
+  // Use admin client to bypass RLS - finders need to see disc info to report it
+  const { data: disc, error: discError } = await supabaseAdmin
     .from('discs')
     .select('id, owner_id, name')
     .eq('qr_code_id', qrCode.id)
