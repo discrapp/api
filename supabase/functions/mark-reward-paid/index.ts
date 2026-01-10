@@ -81,11 +81,12 @@ const handler = async (req: Request): Promise<Response> => {
   // Set Sentry user context
   setUser(user.id);
 
-  // Service role client only for operations that need to bypass RLS (not used in this function currently)
-  const _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  // Service role client for bypassing RLS (needed to get disc info for finder)
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Get recovery event with disc info (using user's JWT for RLS)
-  const { data: recovery, error: recoveryError } = await supabase
+  // Get recovery event with disc info (using admin client to bypass RLS on discs table)
+  // Finders can't see disc details via RLS, but need reward_amount to mark as received
+  const { data: recovery, error: recoveryError } = await supabaseAdmin
     .from('recovery_events')
     .select(
       `
