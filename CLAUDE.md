@@ -130,6 +130,35 @@ pre-commit autoupdate           # Update hook versions
 
 ## Important Notes
 
+### TypeScript Type Checking - MANDATORY
+
+**CRITICAL:** All code MUST pass Deno's TypeScript checking. Before committing:
+
+```bash
+deno check supabase/functions/**/*.ts      # Must pass with no errors
+```
+
+**CI enforces this check** - PRs will fail if type errors are present.
+
+**Common type issues to avoid:**
+
+- Don't use `any` type - use proper types or `unknown` with type guards
+- Add explicit types to variables that TypeScript can't infer
+- When mocking in tests, ensure mock return types match expected types
+- Use type assertions (`as`) sparingly and only when you're certain of the type
+- For test mocks with varying return types, use union types
+
+**Example of properly typed mock:**
+
+```typescript
+// Bad - TypeScript infers { error: null } so Error won't work
+const mockFn = () => Promise.resolve({ error: null });
+
+// Good - Explicit type allows both
+type MockResult = { data: MockDisc | null; error: Error | null };
+const mockFn = (): Promise<MockResult> => Promise.resolve({ data: null, error: null });
+```
+
 ### Test-Driven Development (TDD) - MANDATORY
 
 **CRITICAL:** All new code MUST be developed using Test-Driven Development.
@@ -881,7 +910,7 @@ npm run db:generate
 
 ---
 
-**Last Updated:** 2026-01-02
+**Last Updated:** 2026-01-17
 
 This file should be updated whenever:
 
