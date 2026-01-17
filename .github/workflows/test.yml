@@ -13,6 +13,21 @@ permissions:
   pull-requests: write
 
 jobs:
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Deno type check
+        run: deno check supabase/functions/**/*.ts
+
   test:
     name: Run Tests with Coverage
     runs-on: ubuntu-latest
