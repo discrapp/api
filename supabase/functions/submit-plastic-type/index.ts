@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withSentry } from '../_shared/with-sentry.ts';
 import { setUser, captureException } from '../_shared/sentry.ts';
+import { notifyPendingPlasticType } from '../_shared/slack.ts';
 
 /**
  * Submit Plastic Type Function
@@ -135,6 +136,11 @@ const handler = async (req: Request): Promise<Response> => {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    // Send Slack notification for admin review (non-blocking)
+    notifyPendingPlasticType(manufacturer, plasticName, user.email).catch((err) => {
+      console.error('Failed to send Slack notification:', err);
+    });
 
     return new Response(
       JSON.stringify({

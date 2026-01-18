@@ -57,7 +57,7 @@ const QR: QRCodeModule = QRCode as QRCodeModule;
 const STICKER_WIDTH = 108; // 1.5 inches
 const STICKER_HEIGHT = 144; // 2 inches
 const INNER_MARGIN = 8; // Margin inside the cut line
-const CONTENT_WIDTH = STICKER_WIDTH - (INNER_MARGIN * 2) - 4; // ~88pt usable width
+const CONTENT_WIDTH = STICKER_WIDTH - INNER_MARGIN * 2 - 4; // ~88pt usable width
 const QR_SIZE = 58; // Smaller QR to fit
 const PAGE_MARGIN = 36; // 0.5 inch margin
 const NUM_STICKERS = 5;
@@ -114,13 +114,10 @@ async function main() {
     console.log('♻️  Reusing existing demo codes from demo-codes.json');
 
     // Verify they still exist in database
-    const { data: existingCodes } = await supabase
-      .from('qr_codes')
-      .select('short_code')
-      .in('short_code', shortCodes);
+    const { data: existingCodes } = await supabase.from('qr_codes').select('short_code').in('short_code', shortCodes);
 
-    const existingSet = new Set(existingCodes?.map(c => c.short_code) || []);
-    const allExist = shortCodes.every(code => existingSet.has(code));
+    const existingSet = new Set(existingCodes?.map((c) => c.short_code) || []);
+    const allExist = shortCodes.every((code) => existingSet.has(code));
 
     if (!allExist) {
       console.log('⚠️  Some codes missing from database, will create new ones');
@@ -140,10 +137,7 @@ async function main() {
     shortCodes.forEach((code, i) => console.log(`   ${i + 1}. ${code}`));
 
     // Check for collisions
-    const { data: existingCodes } = await supabase
-      .from('qr_codes')
-      .select('short_code')
-      .in('short_code', shortCodes);
+    const { data: existingCodes } = await supabase.from('qr_codes').select('short_code').in('short_code', shortCodes);
 
     if (existingCodes && existingCodes.length > 0) {
       console.error('❌ Code collision detected. Please run again.');
@@ -157,10 +151,7 @@ async function main() {
       status: 'generated',
     }));
 
-    const { data: insertedCodes, error: insertError } = await supabase
-      .from('qr_codes')
-      .insert(qrCodeData)
-      .select();
+    const { data: insertedCodes, error: insertError } = await supabase.from('qr_codes').insert(qrCodeData).select();
 
     if (insertError) {
       console.error('❌ Failed to insert QR codes:', insertError.message);
@@ -206,7 +197,7 @@ async function main() {
     // Inner content area (inside the cut line with margins)
     const contentX = x + INNER_MARGIN + 2;
     const contentY = y + INNER_MARGIN + 2;
-    const contentHeight = STICKER_HEIGHT - (INNER_MARGIN * 2) - 4;
+    const contentHeight = STICKER_HEIGHT - INNER_MARGIN * 2 - 4;
 
     // Draw logo at top (scaled to fit content width)
     const logoTargetWidth = Math.min(CONTENT_WIDTH - 10, 60);

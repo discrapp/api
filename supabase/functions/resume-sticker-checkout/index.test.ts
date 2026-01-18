@@ -509,9 +509,7 @@ Deno.test('resume-sticker-checkout - handles shipping address as array from Supa
   mockOrders.push(order);
 
   // Handle array case
-  const shippingAddress = Array.isArray(order.shipping_address)
-    ? order.shipping_address[0]
-    : order.shipping_address;
+  const shippingAddress = Array.isArray(order.shipping_address) ? order.shipping_address[0] : order.shipping_address;
 
   assertExists(shippingAddress);
   assertEquals(shippingAddress.name, 'Test User');

@@ -199,13 +199,10 @@ const handler = async (req: Request): Promise<Response> => {
         ownerId,
         finderId,
       });
-      return new Response(
-        JSON.stringify({ error: 'Failed to create recovery event', details: createError.message }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Failed to create recovery event', details: createError.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     // Get finder's display name for notification

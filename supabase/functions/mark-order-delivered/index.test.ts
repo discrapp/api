@@ -68,11 +68,7 @@ function resetMocks() {
 }
 
 // Helper to create a test order
-function createTestOrder(
-  userId: string,
-  status: string = 'shipped',
-  trackingNumber: string | null = null
-) {
+function createTestOrder(userId: string, status: string = 'shipped', trackingNumber: string | null = null) {
   const orderId = `order-${Date.now()}`;
 
   const order: MockOrder = {
@@ -340,10 +336,7 @@ Deno.test('mark-order-delivered - handles database update errors gracefully', as
 
   const order = createTestOrder('user-123', 'shipped', null);
 
-  const { error } = await mockSupabaseClient
-    .from('sticker_orders')
-    .update({ status: 'delivered' })
-    .eq('id', order.id);
+  const { error } = await mockSupabaseClient.from('sticker_orders').update({ status: 'delivered' }).eq('id', order.id);
 
   if (error) {
     const response = new Response(JSON.stringify({ error: 'Failed to update order' }), {

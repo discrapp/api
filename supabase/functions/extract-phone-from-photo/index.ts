@@ -98,13 +98,10 @@ function validateFile(file: File | null, fieldName: string): Response | null {
   }
 
   if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-    return new Response(
-      JSON.stringify({ error: `${fieldName} must be an image (jpeg, png, or webp)` }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: `${fieldName} must be an image (jpeg, png, or webp)` }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   if (file.size > MAX_FILE_SIZE) {

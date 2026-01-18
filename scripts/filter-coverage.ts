@@ -21,9 +21,9 @@ const EXCLUDED_LINES: ExcludedLines[] = [
   {
     file: 'supabase/functions/_shared/sentry.ts',
     ranges: [
-      { start: 40, end: 52 },   // Sentry initialization
-      { start: 66, end: 74 },   // Sentry captureException
-      { start: 86, end: 91 },   // Sentry setUser
+      { start: 40, end: 52 }, // Sentry initialization
+      { start: 66, end: 74 }, // Sentry captureException
+      { start: 86, end: 91 }, // Sentry setUser
     ],
     reason: 'Third-party Sentry integration - cannot test without npm package',
   },

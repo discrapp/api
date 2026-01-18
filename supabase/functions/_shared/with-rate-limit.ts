@@ -23,13 +23,7 @@
  *   Deno.serve(withSentry(withRateLimit(handler, { windowMs: 60000, maxRequests: 100 }, userKeyExtractor)));
  */
 
-import {
-  RateLimiter,
-  RateLimitConfig,
-  checkRateLimit,
-  getRateLimitHeaders,
-  KeyExtractor,
-} from './rate-limit.ts';
+import { RateLimiter, RateLimitConfig, checkRateLimit, getRateLimitHeaders, KeyExtractor } from './rate-limit.ts';
 
 /** Default configuration for rate limiting */
 const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {

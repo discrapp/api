@@ -43,9 +43,7 @@ const handler = async (req: Request): Promise<Response> => {
   });
 
   // Build query
-  let query = supabase
-    .from('plastic_types')
-    .select('id, manufacturer, plastic_name, display_order, status');
+  let query = supabase.from('plastic_types').select('id, manufacturer, plastic_name, display_order, status');
 
   // Filter by manufacturer if provided (case-insensitive)
   if (manufacturer) {

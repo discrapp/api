@@ -311,10 +311,7 @@ Deno.test('cancel-sticker-order - successfully cancels pending_payment order', a
   assertEquals(orderData.user_id, authData.user.id);
 
   // Update order status to cancelled
-  await mockSupabaseClient
-    .from('sticker_orders')
-    .update({ status: 'cancelled' })
-    .eq('id', orderData.id);
+  await mockSupabaseClient.from('sticker_orders').update({ status: 'cancelled' }).eq('id', orderData.id);
 
   // Verify order was updated
   const updatedOrder = mockOrders.find((o) => o.id === orderData.id);
@@ -349,10 +346,7 @@ Deno.test('cancel-sticker-order - handles database update errors gracefully', as
   const order = createTestOrder('user-123', 'pending_payment');
 
   // Attempt to update order - should fail
-  const { error } = await mockSupabaseClient
-    .from('sticker_orders')
-    .update({ status: 'cancelled' })
-    .eq('id', order.id);
+  const { error } = await mockSupabaseClient.from('sticker_orders').update({ status: 'cancelled' }).eq('id', order.id);
 
   if (error) {
     const response = new Response(JSON.stringify({ error: 'Failed to cancel order' }), {

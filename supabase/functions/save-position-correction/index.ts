@@ -29,14 +29,7 @@ interface PositionCorrection {
 function isValidPosition(pos: unknown): pos is { x: number; y: number } {
   if (typeof pos !== 'object' || pos === null) return false;
   const p = pos as { x?: unknown; y?: unknown };
-  return (
-    typeof p.x === 'number' &&
-    typeof p.y === 'number' &&
-    p.x >= 0 &&
-    p.x <= 100 &&
-    p.y >= 0 &&
-    p.y <= 100
-  );
+  return typeof p.x === 'number' && typeof p.y === 'number' && p.x >= 0 && p.x <= 100 && p.y >= 0 && p.y <= 100;
 }
 
 function isValidUUID(uuid: string): boolean {
@@ -106,23 +99,17 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   if (!isValidPosition(body.corrected_tee_position)) {
-    return new Response(
-      JSON.stringify({ error: 'Invalid corrected_tee_position. Must be {x: 0-100, y: 0-100}' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Invalid corrected_tee_position. Must be {x: 0-100, y: 0-100}' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   if (!isValidPosition(body.corrected_basket_position)) {
-    return new Response(
-      JSON.stringify({ error: 'Invalid corrected_basket_position. Must be {x: 0-100, y: 0-100}' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'Invalid corrected_basket_position. Must be {x: 0-100, y: 0-100}' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Create service role client for update (bypasses RLS for update)

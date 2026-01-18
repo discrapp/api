@@ -273,14 +273,7 @@ Deno.test('lookup-user-by-phone: normalizes various phone formats', async () => 
   });
 
   // Test different formats
-  const formats = [
-    '5125551234',
-    '512-555-1234',
-    '(512) 555-1234',
-    '512.555.1234',
-    '1-512-555-1234',
-    '+1 512 555 1234',
-  ];
+  const formats = ['5125551234', '512-555-1234', '(512) 555-1234', '512.555.1234', '1-512-555-1234', '+1 512 555 1234'];
 
   for (const format of formats) {
     resetMocks();
