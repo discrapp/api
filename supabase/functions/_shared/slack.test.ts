@@ -26,9 +26,9 @@ Deno.test('sendSlackNotification: skips when webhook URL not configured', async 
   resetMocks();
 
   // Call without webhookUrl option (and no env var)
+  // Don't provide fetchFn to exercise the ?? fetch fallback path
   const result = await sendSlackNotification('Test message', {
     webhookUrl: undefined,
-    fetchFn: mockFetch,
   });
 
   assertEquals(result, false);
