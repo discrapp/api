@@ -5,12 +5,12 @@
  * If not set, notifications will be silently skipped.
  */
 
-interface SlackMessage {
+export interface SlackMessage {
   text: string;
   blocks?: SlackBlock[];
 }
 
-interface SlackBlock {
+export interface SlackBlock {
   type: 'section' | 'header' | 'divider' | 'context';
   text?: {
     type: 'plain_text' | 'mrkdwn';
@@ -28,13 +28,24 @@ interface SlackBlock {
 }
 
 /**
+ * Options for sending Slack notifications.
+ * Used for dependency injection in tests.
+ */
+export interface SlackOptions {
+  webhookUrl?: string;
+  fetchFn?: typeof fetch;
+}
+
+/**
  * Send a notification to Slack.
  *
  * @param message - Plain text message or structured message with blocks
+ * @param options - Optional configuration for testing (webhook URL, fetch function)
  * @returns true if sent successfully, false if skipped or failed
  */
-export async function sendSlackNotification(message: string | SlackMessage): Promise<boolean> {
-  const webhookUrl = Deno.env.get('SLACK_WEBHOOK_URL');
+export async function sendSlackNotification(message: string | SlackMessage, options?: SlackOptions): Promise<boolean> {
+  const webhookUrl = options?.webhookUrl ?? Deno.env.get('SLACK_WEBHOOK_URL');
+  const fetchFn = options?.fetchFn ?? fetch;
 
   // Skip if webhook URL is not configured
   if (!webhookUrl) {
@@ -45,7 +56,7 @@ export async function sendSlackNotification(message: string | SlackMessage): Pro
   try {
     const payload = typeof message === 'string' ? { text: message } : message;
 
-    const response = await fetch(webhookUrl, {
+    const response = await fetchFn(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -66,14 +77,23 @@ export async function sendSlackNotification(message: string | SlackMessage): Pro
 }
 
 /**
+ * Options for notifyPendingPlasticType.
+ * Used for dependency injection in tests.
+ */
+export interface NotifyPlasticOptions extends SlackOptions {
+  adminUrl?: string;
+}
+
+/**
  * Send a notification about a new pending plastic type submission.
  */
 export async function notifyPendingPlasticType(
   manufacturer: string,
   plasticName: string,
-  submitterEmail?: string
+  submitterEmail?: string,
+  options?: NotifyPlasticOptions
 ): Promise<boolean> {
-  const adminUrl = Deno.env.get('ADMIN_URL') || 'https://admin.discrapp.com';
+  const adminUrl = options?.adminUrl ?? Deno.env.get('ADMIN_URL') ?? 'https://admin.discrapp.com';
 
   const message: SlackMessage = {
     text: `New plastic type submitted for review: ${manufacturer} - ${plasticName}`,
@@ -122,5 +142,5 @@ export async function notifyPendingPlasticType(
     ],
   };
 
-  return sendSlackNotification(message);
+  return sendSlackNotification(message, options);
 }
