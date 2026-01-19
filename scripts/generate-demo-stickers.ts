@@ -195,9 +195,10 @@ async function main() {
     const y = startY;
 
     // Inner content area (inside the cut line with margins)
-    const contentX = x + INNER_MARGIN + 2;
-    const contentY = y + INNER_MARGIN + 2;
-    const contentHeight = STICKER_HEIGHT - INNER_MARGIN * 2 - 4;
+    // These are kept for documentation/future use
+    const _contentX = x + INNER_MARGIN + 2;
+    const _contentY = y + INNER_MARGIN + 2;
+    const _contentHeight = STICKER_HEIGHT - INNER_MARGIN * 2 - 4;
 
     // Draw logo at top (scaled to fit content width)
     const logoTargetWidth = Math.min(CONTENT_WIDTH - 10, 60);

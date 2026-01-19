@@ -72,32 +72,6 @@ Deno.test('initSentry should initialize when DSN is set', async () => {
   // Set a test DSN
   Deno.env.set('SENTRY_DSN', 'https://test@test.ingest.sentry.io/test');
 
-  // Mock the Sentry module
-  const mockSentry = {
-    init: (_config: unknown) => {
-      // Mock init function
-    },
-    captureException: (_error: unknown) => {
-      // Mock captureException
-    },
-    withScope: (callback: (scope: unknown) => void) => {
-      const mockScope = {
-        setExtras: (_extras: Record<string, unknown>) => {
-          // Mock setExtras
-        },
-      };
-      callback(mockScope);
-    },
-    setUser: (_user: unknown) => {
-      // Mock setUser
-    },
-  };
-
-  // Dynamically import with mock
-  const importMap = {
-    'npm:@sentry/node': mockSentry,
-  };
-
   // Since we can't easily mock dynamic imports in tests, we'll use a different approach
   // We'll test that the function doesn't throw and logs appropriately
   await import('./sentry.ts');

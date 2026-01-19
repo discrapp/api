@@ -259,7 +259,7 @@ jobs:
           echo "Found $(echo "$deployed_functions" | grep -c .) deployed functions"
 
           # Get all local function directories (excluding _shared)
-          local_functions=$(ls -d supabase/functions/*/ 2>/dev/null | xargs -I {} basename {} | grep -v "^_shared$" || echo "")
+          local_functions=$(find supabase/functions -maxdepth 1 -mindepth 1 -type d -not -name "_shared" -exec basename {} \; 2>/dev/null || echo "")
           echo "Found $(echo "$local_functions" | wc -w | tr -d ' ') local functions"
 
           # Check for new functions that aren't deployed yet

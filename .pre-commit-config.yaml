@@ -24,6 +24,7 @@ repos:
     rev: v0.15.0
     hooks:
       - id: markdownlint_docker
+        args: [--rules, "~MD013,~MD005,~MD007"]
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.9
     hooks:

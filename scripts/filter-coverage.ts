@@ -33,8 +33,8 @@ async function filterCoverageReport() {
   const lcovPath = 'supabase/functions/.coverage/lcov.info';
 
   try {
-    const content = await Deno.readTextFile(lcovPath);
-    let filteredContent = content;
+    // Read the coverage file to verify it exists
+    await Deno.readTextFile(lcovPath);
 
     for (const exclusion of EXCLUDED_LINES) {
       console.log(`Excluding ${exclusion.file}: ${exclusion.reason}`);

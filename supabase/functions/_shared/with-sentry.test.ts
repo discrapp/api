@@ -6,7 +6,7 @@ const originalDsn = Deno.env.get('SENTRY_DSN');
 Deno.env.delete('SENTRY_DSN');
 
 Deno.test('with-sentry - wraps handler successfully', async () => {
-  const mockHandler = async (req: Request): Promise<Response> => {
+  const mockHandler = async (_req: Request): Promise<Response> => {
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -53,7 +53,6 @@ Deno.test('with-sentry - preserves request context on error', async () => {
 
 Deno.test('with-sentry - handles non-Error exceptions', async () => {
   const mockHandler = async (_req: Request): Promise<Response> => {
-    // eslint-disable-next-line no-throw-literal
     throw 'String error';
   };
 

@@ -10,6 +10,7 @@ This project aims for 100% test coverage of all **application code**. However, w
 intentionally exclude certain code from coverage requirements.
 
 **Quick Stats:**
+
 - **Total Tests:** 487 passing ✅
 - **Application Code Coverage:** 93.7% line, **100.0%** branch ✅
 - **Raw Coverage (with exclusions):** 82.9% line, 97.1% branch
@@ -18,7 +19,7 @@ intentionally exclude certain code from coverage requirements.
 ### Coverage Exclusions Summary
 
 | File/Pattern | Coverage | Category | Reason |
-|--------------|----------|----------|--------|
+| ------------ | -------- | -------- | ------ |
 | `sentry-integration.ts` | 9.8% line, 0.0% branch (excluded) | Third-party | Sentry SDK integration |
 | `sentry.ts` | **100.0%** ✅ | Application | Fully tested via dependency injection |
 | `logo-data.ts` | N/A (not tested) | Data File | Base64-encoded image (167KB) |
@@ -34,6 +35,7 @@ on all exclusions, rationale, and verification procedures.
 #### Third-Party Integration Code
 
 **Files:**
+
 - `supabase/functions/_shared/sentry-integration.ts` (fully excluded)
 - `supabase/functions/_shared/sentry.ts` (100% tested ✅)
 
@@ -46,11 +48,12 @@ The Sentry error tracking integration is split into two files using dependency i
    - A valid Sentry DSN for testing
    - Complex mocking infrastructure that Deno doesn't support well
 
-2. **sentry.ts** - Contains application logic (guard clauses, null checks, error
+1. **sentry.ts** - Contains application logic (guard clauses, null checks, error
    handling). Uses dependency injection to allow 100% test coverage by injecting
    mock implementations during tests.
 
 **What IS tested:**
+
 - ✅ **100% of sentry.ts** - All application logic via dependency injection mocks
 - ✅ All guard clauses and null checks
 - ✅ Error handling when Sentry is not configured
@@ -59,9 +62,11 @@ The Sentry error tracking integration is split into two files using dependency i
 - ✅ All integration points via mock verification
 
 **What is NOT tested:**
+
 - ❌ sentry-integration.ts (100% third-party integration)
 
 **Coverage Impact:**
+
 - sentry-integration.ts: Excluded from report (9.8% line, 0.0% branch)
 - sentry.ts: **100.0%** ✅ (all lines and branches covered)
 - Overall: 93.7% line, **100.0%** branch
@@ -108,11 +113,12 @@ deno coverage .coverage --exclude='supabase/functions/_shared/sentry-integration
 When adding new code:
 
 1. **Write tests first** (TDD approach - see CLAUDE.md)
-2. **Use mocks** for external dependencies (database, APIs)
-3. **Aim for 100% coverage** of all application logic
-4. **Document exceptions** if third-party integration cannot be tested
+1. **Use mocks** for external dependencies (database, APIs)
+1. **Aim for 100% coverage** of all application logic
+1. **Document exceptions** if third-party integration cannot be tested
 
 If you need to add coverage exceptions:
+
 1. Document the rationale in this file
-2. Add the file and line numbers to the exclusion list
-3. Ensure all surrounding application logic IS tested
+1. Add the file and line numbers to the exclusion list
+1. Ensure all surrounding application logic IS tested
