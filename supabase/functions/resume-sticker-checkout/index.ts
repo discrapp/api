@@ -159,9 +159,7 @@ const handler = async (req: Request): Promise<Response> => {
   });
 
   // Get shipping address (handle array or single object from Supabase)
-  const shippingAddress = Array.isArray(order.shipping_address)
-    ? order.shipping_address[0]
-    : order.shipping_address;
+  const shippingAddress = Array.isArray(order.shipping_address) ? order.shipping_address[0] : order.shipping_address;
 
   if (!shippingAddress) {
     return new Response(JSON.stringify({ error: 'Order missing shipping address' }), {
@@ -215,10 +213,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
     // Update order with new checkout session ID
-    await supabaseAdmin
-      .from('sticker_orders')
-      .update({ stripe_checkout_session_id: session.id })
-      .eq('id', order.id);
+    await supabaseAdmin.from('sticker_orders').update({ stripe_checkout_session_id: session.id }).eq('id', order.id);
 
     return new Response(
       JSON.stringify({

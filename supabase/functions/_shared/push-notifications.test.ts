@@ -53,10 +53,10 @@ Deno.test('push-notifications - sends notification successfully', async () => {
   // Mock fetch globally
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
-    return new Response(
-      JSON.stringify({ data: { status: 'ok' } }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ data: { status: 'ok' } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   };
 
   const mockSupabase = {
@@ -92,10 +92,10 @@ Deno.test('push-notifications - sends notification successfully', async () => {
 Deno.test('push-notifications - handles API error response', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
-    return new Response(
-      JSON.stringify({ error: 'Invalid token' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ error: 'Invalid token' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   };
 
   const mockSupabase = {
@@ -217,10 +217,10 @@ Deno.test('push-notifications - includes optional data field', async () => {
     if (options?.body) {
       requestBody = JSON.parse(options.body as string);
     }
-    return new Response(
-      JSON.stringify({ data: { status: 'ok' } }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ data: { status: 'ok' } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   };
 
   const mockSupabase = {
@@ -259,10 +259,10 @@ Deno.test('push-notifications - works without optional data field', async () => 
     if (options?.body) {
       requestBody = JSON.parse(options.body as string);
     }
-    return new Response(
-      JSON.stringify({ data: { status: 'ok' } }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ data: { status: 'ok' } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   };
 
   const mockSupabase = {

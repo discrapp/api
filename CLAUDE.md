@@ -169,22 +169,22 @@ This is NON-NEGOTIABLE. Writing implementation before tests is FORBIDDEN.
 1. **STOP** - Before writing ANY implementation code, ask yourself: "Do I have a
    failing test for this?" If no, write the test first.
 
-2. **RED Phase** - Write a failing test:
+1. **RED Phase** - Write a failing test:
    - Create the test file FIRST if it doesn't exist
    - Write a test that describes the expected behavior
    - Run the test and VERIFY it fails (this proves the test is valid)
    - If the test passes without implementation, the test is wrong
 
-3. **GREEN Phase** - Write minimal implementation:
+1. **GREEN Phase** - Write minimal implementation:
    - Write ONLY enough code to make the failing test pass
    - Do not add extra functionality "while you're there"
    - Run the test and verify it passes
 
-4. **REFACTOR Phase** - Clean up while tests stay green:
+1. **REFACTOR Phase** - Clean up while tests stay green:
    - Improve code structure without changing behavior
    - Run tests after each change to ensure they still pass
 
-5. **REPEAT** - Go back to step 2 for the next piece of functionality
+1. **REPEAT** - Go back to step 2 for the next piece of functionality
 
 #### Coverage Requirements - 100% BY DESIGN
 
@@ -836,7 +836,7 @@ return internalError('Database error', ErrorCode.DATABASE_ERROR);
 ### File Map - Where to Edit
 
 | Task | Files to Edit |
-|------|---------------|
+| ------ | --------------- |
 | Add new table | `src/schema/[name].ts`, `src/schema/[name].test.ts`, `src/schema/index.ts` |
 | Add new endpoint | `supabase/functions/[name]/index.ts`, `supabase/functions/[name]/index.test.ts` |
 | Add shared utility | `supabase/functions/_shared/[name].ts` |
@@ -854,7 +854,7 @@ touch supabase/functions/my-endpoint/index.test.ts
 echo '{}' > supabase/functions/my-endpoint/deno.json
 ```
 
-2. Write test FIRST (TDD):
+1. Write test FIRST (TDD):
 
 ```typescript
 // index.test.ts
@@ -863,9 +863,9 @@ Deno.test('my-endpoint: returns 405 for non-POST', async () => {
 });
 ```
 
-3. Implement handler following the pattern above
+1. Implement handler following the pattern above
 
-4. Run tests:
+1. Run tests:
 
 ```bash
 deno test --allow-all supabase/functions/my-endpoint/
@@ -887,14 +887,14 @@ export type MyTable = typeof myTable.$inferSelect;
 export type NewMyTable = typeof myTable.$inferInsert;
 ```
 
-2. Export from index:
+1. Export from index:
 
 ```typescript
 // src/schema/index.ts
 export * from './my-table';
 ```
 
-3. Generate migration:
+1. Generate migration:
 
 ```bash
 npm run db:generate

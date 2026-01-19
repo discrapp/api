@@ -188,13 +188,7 @@ Deno.test('FlightNumbersSchema - rejects fade out of range', () => {
 // =============================================================================
 
 Deno.test('NotificationTypeSchema - accepts valid types', () => {
-  const validTypes = [
-    'disc_found',
-    'meetup_proposed',
-    'meetup_accepted',
-    'meetup_declined',
-    'disc_recovered',
-  ];
+  const validTypes = ['disc_found', 'meetup_proposed', 'meetup_accepted', 'meetup_declined', 'disc_recovered'];
   for (const type of validTypes) {
     const result = NotificationTypeSchema.safeParse(type);
     assertEquals(result.success, true, `Should accept '${type}'`);
@@ -247,13 +241,7 @@ Deno.test('DiscCategorySchema - accepts valid categories', () => {
 // =============================================================================
 
 Deno.test('DiscStabilitySchema - accepts valid stability values', () => {
-  const validStabilities = [
-    'Very Overstable',
-    'Overstable',
-    'Stable',
-    'Understable',
-    'Very Understable',
-  ];
+  const validStabilities = ['Very Overstable', 'Overstable', 'Stable', 'Understable', 'Very Understable'];
   for (const stability of validStabilities) {
     const result = DiscStabilitySchema.safeParse(stability);
     assertEquals(result.success, true, `Should accept '${stability}'`);

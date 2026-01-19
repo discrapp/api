@@ -162,9 +162,7 @@ Deno.test('get-plastic-types: should return plastics sorted by display_order', a
 Deno.test('get-plastic-types: should return empty array for unknown manufacturer', async () => {
   resetMocks();
 
-  mockPlasticTypes = [
-    { id: 'pt-1', manufacturer: 'Innova', plastic_name: 'Star', display_order: 1 },
-  ];
+  mockPlasticTypes = [{ id: 'pt-1', manufacturer: 'Innova', plastic_name: 'Star', display_order: 1 }];
 
   const supabase = mockSupabaseClient();
 
@@ -181,9 +179,7 @@ Deno.test('get-plastic-types: should return empty array for unknown manufacturer
 Deno.test('get-plastic-types: should return correct response structure', async () => {
   resetMocks();
 
-  mockPlasticTypes = [
-    { id: 'pt-1', manufacturer: 'Innova', plastic_name: 'Star', display_order: 1 },
-  ];
+  mockPlasticTypes = [{ id: 'pt-1', manufacturer: 'Innova', plastic_name: 'Star', display_order: 1 }];
 
   const supabase = mockSupabaseClient();
 

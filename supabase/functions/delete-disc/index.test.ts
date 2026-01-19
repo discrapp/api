@@ -218,10 +218,7 @@ Deno.test('delete-disc - should call captureException on database error', async 
   let capturedContext: Record<string, unknown> | undefined;
 
   // Mock captureException
-  const mockCaptureException = (
-    _error: unknown,
-    context?: Record<string, unknown>
-  ) => {
+  const mockCaptureException = (_error: unknown, context?: Record<string, unknown>) => {
     captureExceptionCalled = true;
     capturedContext = context;
   };
@@ -235,13 +232,10 @@ Deno.test('delete-disc - should call captureException on database error', async 
       userId: mockUser.id,
     });
 
-    const response = new Response(
-      JSON.stringify({ error: 'Failed to delete disc', details: deleteError.message }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    const response = new Response(JSON.stringify({ error: 'Failed to delete disc', details: deleteError.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     assertEquals(response.status, 500);
     assertEquals(captureExceptionCalled, true);

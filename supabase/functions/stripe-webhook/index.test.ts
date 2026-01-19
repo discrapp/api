@@ -163,9 +163,7 @@ function mockSupabaseClient(options?: { updateShouldFail?: boolean }) {
                         });
                       }
                       const order = mockStickerOrders.find(
-                        (o) =>
-                          o[col1 as keyof MockStickerOrder] === val1 &&
-                          o[col2 as keyof MockStickerOrder] === val2
+                        (o) => o[col1 as keyof MockStickerOrder] === val1 && o[col2 as keyof MockStickerOrder] === val2
                       );
                       if (order) {
                         Object.assign(order, values);
@@ -188,9 +186,7 @@ function mockSupabaseClient(options?: { updateShouldFail?: boolean }) {
                     });
                   }
                   // For single .eq() case, just match on col1
-                  const order = mockStickerOrders.find(
-                    (o) => o[col1 as keyof MockStickerOrder] === val1
-                  );
+                  const order = mockStickerOrders.find((o) => o[col1 as keyof MockStickerOrder] === val1);
                   if (order) {
                     Object.assign(order, values);
                     return Promise.resolve({ data: order, error: null });
@@ -221,10 +217,7 @@ function mockSupabaseClient(options?: { updateShouldFail?: boolean }) {
 }
 
 // Simpler mock for single-column updates (recovery_events and profiles)
-function mockSupabaseClientSimple(options?: {
-  recoveryUpdateShouldFail?: boolean;
-  profileUpdateShouldFail?: boolean;
-}) {
+function mockSupabaseClientSimple(options?: { recoveryUpdateShouldFail?: boolean; profileUpdateShouldFail?: boolean }) {
   return {
     from: (table: string) => ({
       update: (values: Record<string, unknown>) => ({
@@ -589,31 +582,34 @@ Deno.test('stripe-webhook: should ignore charge.succeeded events', async () => {
 // TESTS: checkout.session.completed - Sticker Orders
 // ============================================================================
 
-Deno.test('stripe-webhook: checkout.session.completed should return 400 when order_id is missing for sticker order', async () => {
-  resetMocks();
+Deno.test(
+  'stripe-webhook: checkout.session.completed should return 400 when order_id is missing for sticker order',
+  async () => {
+    resetMocks();
 
-  const session: MockStripeCheckoutSession = {
-    id: 'cs_test_123',
-    payment_intent: 'pi_test_456',
-    metadata: {},
-  };
+    const session: MockStripeCheckoutSession = {
+      id: 'cs_test_123',
+      payment_intent: 'pi_test_456',
+      metadata: {},
+    };
 
-  // No type means it's a sticker order (not a reward payment)
-  const paymentType = session.metadata?.type;
+    // No type means it's a sticker order (not a reward payment)
+    const paymentType = session.metadata?.type;
 
-  if (paymentType !== 'reward_payment') {
-    const orderId = session.metadata?.order_id;
-    if (!orderId) {
-      const response = new Response(JSON.stringify({ error: 'Missing order_id in metadata' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-      assertEquals(response.status, 400);
-      const data = await response.json();
-      assertEquals(data.error, 'Missing order_id in metadata');
+    if (paymentType !== 'reward_payment') {
+      const orderId = session.metadata?.order_id;
+      if (!orderId) {
+        const response = new Response(JSON.stringify({ error: 'Missing order_id in metadata' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+        assertEquals(response.status, 400);
+        const data = await response.json();
+        assertEquals(data.error, 'Missing order_id in metadata');
+      }
     }
   }
-});
+);
 
 Deno.test('stripe-webhook: checkout.session.completed should update sticker order to paid', async () => {
   resetMocks();
@@ -858,33 +854,36 @@ Deno.test('stripe-webhook: checkout.session.completed should trigger fulfillment
 // TESTS: checkout.session.completed - Reward Payments
 // ============================================================================
 
-Deno.test('stripe-webhook: checkout.session.completed should return 400 when recovery_event_id is missing for reward payment', async () => {
-  resetMocks();
+Deno.test(
+  'stripe-webhook: checkout.session.completed should return 400 when recovery_event_id is missing for reward payment',
+  async () => {
+    resetMocks();
 
-  const session: MockStripeCheckoutSession = {
-    id: 'cs_reward_123',
-    payment_intent: 'pi_reward_456',
-    metadata: {
-      type: 'reward_payment',
-      // missing recovery_event_id
-    },
-  };
+    const session: MockStripeCheckoutSession = {
+      id: 'cs_reward_123',
+      payment_intent: 'pi_reward_456',
+      metadata: {
+        type: 'reward_payment',
+        // missing recovery_event_id
+      },
+    };
 
-  const paymentType = session.metadata?.type;
+    const paymentType = session.metadata?.type;
 
-  if (paymentType === 'reward_payment') {
-    const recoveryEventId = session.metadata?.recovery_event_id;
-    if (!recoveryEventId) {
-      const response = new Response(JSON.stringify({ error: 'Missing recovery_event_id in metadata' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-      assertEquals(response.status, 400);
-      const data = await response.json();
-      assertEquals(data.error, 'Missing recovery_event_id in metadata');
+    if (paymentType === 'reward_payment') {
+      const recoveryEventId = session.metadata?.recovery_event_id;
+      if (!recoveryEventId) {
+        const response = new Response(JSON.stringify({ error: 'Missing recovery_event_id in metadata' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+        assertEquals(response.status, 400);
+        const data = await response.json();
+        assertEquals(data.error, 'Missing recovery_event_id in metadata');
+      }
     }
   }
-});
+);
 
 Deno.test('stripe-webhook: checkout.session.completed should mark reward as paid', async () => {
   resetMocks();
@@ -1043,9 +1042,7 @@ Deno.test('stripe-webhook: checkout.session.expired should cancel pending order'
 
   // Create a custom client for this test that handles status check
   const mockOrdersForExpired = mockStickerOrders;
-  const orderToUpdate = mockOrdersForExpired.find(
-    (o) => o.id === order.id && o.status === 'pending_payment'
-  );
+  const orderToUpdate = mockOrdersForExpired.find((o) => o.id === order.id && o.status === 'pending_payment');
 
   if (orderToUpdate) {
     orderToUpdate.status = 'cancelled';
@@ -1270,10 +1267,7 @@ Deno.test('stripe-webhook: account.updated should keep status pending when not f
   assertEquals(status, 'pending');
 
   // Update profile
-  await supabase
-    .from('profiles')
-    .update({ stripe_connect_status: status })
-    .eq('stripe_connect_account_id', account.id);
+  await supabase.from('profiles').update({ stripe_connect_status: status }).eq('stripe_connect_account_id', account.id);
 
   // Verify
   const updatedProfile = mockProfiles.find((p) => p.stripe_connect_account_id === account.id);

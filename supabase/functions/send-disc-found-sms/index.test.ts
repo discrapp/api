@@ -373,8 +373,7 @@ async function mockHandler(
   // Check for recent SMS to same number (rate limit)
   const recentSms = mockSmsLogs.find(
     (log) =>
-      log.recipient_phone === normalizedPhone &&
-      new Date(log.sent_at).getTime() > Date.now() - 24 * 60 * 60 * 1000
+      log.recipient_phone === normalizedPhone && new Date(log.sent_at).getTime() > Date.now() - 24 * 60 * 60 * 1000
   );
 
   if (recentSms) {
@@ -385,7 +384,11 @@ async function mockHandler(
   }
 
   // Get sender's display name
-  const finderResult = await admin.from('profiles').select('username, full_name, display_preference').eq('id', senderId).single();
+  const finderResult = await admin
+    .from('profiles')
+    .select('username, full_name, display_preference')
+    .eq('id', senderId)
+    .single();
 
   let finderName = 'Someone';
   if (finderResult.data) {

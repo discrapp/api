@@ -550,11 +550,7 @@ async function mockHandler(
   // Validate disc_id if provided
   let discName: string | null = null;
   if (body.disc_id && typeof body.disc_id === 'string') {
-    const discResult = await admin
-      .from('discs')
-      .select('id, owner_id, name')
-      .eq('id', body.disc_id)
-      .single();
+    const discResult = await admin.from('discs').select('id, owner_id, name').eq('id', body.disc_id).single();
 
     if (discResult.error || !discResult.data) {
       return new Response(JSON.stringify({ error: 'Disc not found' }), {

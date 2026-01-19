@@ -24,11 +24,12 @@ This file contains ONLY direct integration with the `@sentry/node` npm package.
 Testing this code would require:
 
 1. The actual Sentry npm package available at test time
-2. A valid Sentry DSN for testing
-3. Complex mocking infrastructure that Deno doesn't support well
-4. Testing third-party library behavior (not our application logic)
+1. A valid Sentry DSN for testing
+1. Complex mocking infrastructure that Deno doesn't support well
+1. Testing third-party library behavior (not our application logic)
 
 **What's in this file:**
+
 - Dynamic import of `npm:@sentry/node`
 - Calls to `Sentry.init()` with configuration
 - Calls to `Sentry.captureException()` and `Sentry.withScope()`
@@ -40,6 +41,7 @@ dedicated file to make the exclusion explicit and minimize impact on overall
 coverage metrics.
 
 **How it's excluded:**
+
 ```bash
 deno coverage .coverage --exclude="sentry-integration.ts"
 ```
@@ -59,6 +61,7 @@ handling). The ONLY uncovered lines are the call sites to functions in
 file being testable.
 
 **Uncovered lines:**
+
 ```typescript
 44:   await initSentrySDK();           // Call to integration
 58:   sendToSentry(error, context);    // Call to integration
@@ -66,6 +69,7 @@ file being testable.
 ```
 
 **What IS tested (100% coverage):**
+
 - All guard clauses (`if (!SENTRY_DSN)`)
 - All null checks (`if (!isSentryConfigured())`)
 - Error handling when Sentry is not configured
@@ -74,9 +78,10 @@ file being testable.
 
 **Why these lines can't be tested:**
 To cover these call sites, we would need to:
+
 1. Set a valid `SENTRY_DSN` environment variable
-2. Successfully import the `@sentry/node` package
-3. Have the integration functions actually execute
+1. Successfully import the `@sentry/node` package
+1. Have the integration functions actually execute
 
 This is the same problem as testing `sentry-integration.ts` itself.
 
@@ -93,6 +98,7 @@ This file contains ONLY a base64-encoded PNG image (167KB). There is no
 application logic to test.
 
 **What's in this file:**
+
 ```typescript
 export const LOGO_BASE64 = `
 iVBORw0KGgoAAAANSUhEUgAABkQAAALVCAYAAACRA40+AAAACXBI...
@@ -101,6 +107,7 @@ iVBORw0KGgoAAAANSUhEUgAABkQAAALVCAYAAACRA40+AAAACXBI...
 ```
 
 **Why it's excluded:**
+
 - Pure data, no logic
 - No functions or control flow to test
 - Would only test that a string constant exists
@@ -116,10 +123,11 @@ iVBORw0KGgoAAAANSUhEUgAABkQAAALVCAYAAACRA40+AAAACXBI...
 ```
 
 This script:
+
 1. Runs all tests with coverage
-2. Generates initial coverage report (82.8%)
-3. Generates filtered report excluding `sentry-integration.ts` (95.5%)
-4. Displays both reports for transparency
+1. Generates initial coverage report (82.8%)
+1. Generates filtered report excluding `sentry-integration.ts` (95.5%)
+1. Displays both reports for transparency
 
 ### Run tests without exclusions (raw coverage)
 
@@ -151,13 +159,13 @@ If you need to exclude additional code from coverage:
    - What IS tested vs. what's excluded
    - Design decisions made
 
-2. **Update TESTING.md** - Add to the summary table
+1. **Update TESTING.md** - Add to the summary table
 
-3. **Update coverage script** - Add to `scripts/test-coverage.sh` if needed
+1. **Update coverage script** - Add to `scripts/test-coverage.sh` if needed
 
-4. **Update README badges** - Update coverage percentages if significant
+1. **Update README badges** - Update coverage percentages if significant
 
-5. **Ensure surrounding code IS tested** - Exclusions should be minimal and
+1. **Ensure surrounding code IS tested** - Exclusions should be minimal and
    isolated
 
 ---
@@ -173,6 +181,7 @@ deno coverage .coverage --detailed | grep -E "sentry|logo-data"
 ```
 
 Should show:
+
 - `sentry-integration.ts`: ~29% (all third-party integration)
 - `sentry.ts`: ~84% (only call sites uncovered)
 - `logo-data.ts`: Not in coverage report (not tested)
@@ -184,15 +193,15 @@ Should show:
 **We exclude code from coverage when:**
 
 1. **Third-party integration** - Testing requires external packages/services
-2. **Pure data** - No logic to test (constants, static data)
-3. **Infrastructure** - Code that manages test infrastructure itself
+1. **Pure data** - No logic to test (constants, static data)
+1. **Infrastructure** - Code that manages test infrastructure itself
 
 **We DO NOT exclude code when:**
 
 1. **It's difficult to test** - Difficult ≠ impossible
-2. **It's rarely used** - All code paths should be tested
-3. **It's legacy code** - Refactor or test it
-4. **Time constraints** - Technical debt is documented, not hidden
+1. **It's rarely used** - All code paths should be tested
+1. **It's legacy code** - Refactor or test it
+1. **Time constraints** - Technical debt is documented, not hidden
 
 **Principle:** Exclusions must be justified and documented. When in doubt, write
 the test.

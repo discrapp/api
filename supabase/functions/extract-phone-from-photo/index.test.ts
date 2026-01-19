@@ -349,13 +349,10 @@ async function mockHandler(
 
   const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
   if (!allowedTypes.includes(backImage.type)) {
-    return new Response(
-      JSON.stringify({ error: 'back_image must be an image (jpeg, png, or webp)' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'back_image must be an image (jpeg, png, or webp)' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const maxSize = 5 * 1024 * 1024;
@@ -376,13 +373,10 @@ async function mockHandler(
   }
 
   if (!allowedTypes.includes(frontImage.type)) {
-    return new Response(
-      JSON.stringify({ error: 'front_image must be an image (jpeg, png, or webp)' }),
-      {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ error: 'front_image must be an image (jpeg, png, or webp)' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   if (frontImage.size > maxSize) {
