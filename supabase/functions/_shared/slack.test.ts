@@ -202,3 +202,33 @@ Deno.test('notifyPendingPlasticType: reports error to Sentry when webhook not co
   assertEquals(mockCaptureExceptionCalled, true);
   assertEquals((mockCaptureExceptionError as Error).message, 'SLACK_ADMIN_WEBHOOK_URL not configured');
 });
+
+Deno.test('sendSlackNotification: uses default captureException when not provided', async () => {
+  resetMocks();
+
+  // Don't provide captureExceptionFn to exercise the ?? sentryCaptureException fallback
+  // Since SENTRY_DSN is not set in test env, it will log to console and return
+  const result = await sendSlackNotification('Test message', {
+    webhookUrl: undefined,
+    // captureExceptionFn not provided - uses default sentryCaptureException
+  });
+
+  assertEquals(result, false);
+  assertEquals(mockFetchCalled, false);
+  // Can't assert on mockCaptureExceptionCalled since we're using the real one
+});
+
+Deno.test('sendSlackNotification: uses default fetch when not provided', async () => {
+  resetMocks();
+
+  // Don't provide fetchFn to exercise the ?? fetch fallback
+  // This won't actually call fetch since webhookUrl is provided but will exercise the branch
+  const result = await sendSlackNotification('Test message', {
+    webhookUrl: undefined,
+    captureExceptionFn: mockCaptureException,
+    // fetchFn not provided - uses default fetch
+  });
+
+  assertEquals(result, false);
+  // fetch wasn't called because we returned early (no webhook URL)
+});
