@@ -2,8 +2,10 @@
  * Slack notification utilities for sending messages to Slack channels.
  *
  * Requires SLACK_ADMIN_WEBHOOK_URL environment variable to be set.
- * If not set, notifications will be silently skipped.
+ * If not set, an error is reported to Sentry.
  */
+
+import { captureException as sentryCaptureException } from './sentry.ts';
 
 export interface SlackMessage {
   text: string;
@@ -34,6 +36,7 @@ export interface SlackBlock {
 export interface SlackOptions {
   webhookUrl?: string;
   fetchFn?: typeof fetch;
+  captureExceptionFn?: (error: Error | unknown, context?: Record<string, unknown>) => void;
 }
 
 /**
@@ -46,10 +49,15 @@ export interface SlackOptions {
 export async function sendSlackNotification(message: string | SlackMessage, options?: SlackOptions): Promise<boolean> {
   const webhookUrl = options?.webhookUrl ?? Deno.env.get('SLACK_ADMIN_WEBHOOK_URL');
   const fetchFn = options?.fetchFn ?? fetch;
+  const captureException = options?.captureExceptionFn ?? sentryCaptureException;
 
-  // Skip if webhook URL is not configured
+  // Report error if webhook URL is not configured
   if (!webhookUrl) {
-    console.log('Slack notification skipped: SLACK_ADMIN_WEBHOOK_URL not configured');
+    const error = new Error('SLACK_ADMIN_WEBHOOK_URL not configured');
+    captureException(error, {
+      operation: 'slack-notification',
+      reason: 'missing_webhook_url',
+    });
     return false;
   }
 
@@ -65,13 +73,22 @@ export async function sendSlackNotification(message: string | SlackMessage, opti
     });
 
     if (!response.ok) {
-      console.error('Slack notification failed:', response.status, response.statusText);
+      const error = new Error(`Slack notification failed: ${response.status} ${response.statusText}`);
+      captureException(error, {
+        operation: 'slack-notification',
+        reason: 'api_error',
+        status: response.status,
+        statusText: response.statusText,
+      });
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error('Slack notification error:', error);
+    captureException(error, {
+      operation: 'slack-notification',
+      reason: 'network_error',
+    });
     return false;
   }
 }

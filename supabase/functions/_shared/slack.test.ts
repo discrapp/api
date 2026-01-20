@@ -6,6 +6,11 @@ let mockFetchCalled = false;
 let mockFetchPayload: unknown = null;
 let mockFetchResponse = { ok: true };
 
+// Mock Sentry captureException state
+let mockCaptureExceptionCalled = false;
+let mockCaptureExceptionError: Error | unknown = null;
+let mockCaptureExceptionContext: Record<string, unknown> | undefined = undefined;
+
 function mockFetch(_input: string | URL | Request, init?: RequestInit): Promise<Response> {
   mockFetchCalled = true;
   mockFetchPayload = init?.body ? JSON.parse(init.body as string) : null;
@@ -16,23 +21,35 @@ function mockFetch(_input: string | URL | Request, init?: RequestInit): Promise<
   } as Response);
 }
 
+function mockCaptureException(error: Error | unknown, context?: Record<string, unknown>): void {
+  mockCaptureExceptionCalled = true;
+  mockCaptureExceptionError = error;
+  mockCaptureExceptionContext = context;
+}
+
 function resetMocks() {
   mockFetchCalled = false;
   mockFetchPayload = null;
   mockFetchResponse = { ok: true };
+  mockCaptureExceptionCalled = false;
+  mockCaptureExceptionError = null;
+  mockCaptureExceptionContext = undefined;
 }
 
-Deno.test('sendSlackNotification: skips when webhook URL not configured', async () => {
+Deno.test('sendSlackNotification: reports error to Sentry when webhook URL not configured', async () => {
   resetMocks();
 
-  // Call without webhookUrl option (and no env var)
-  // Don't provide fetchFn to exercise the ?? fetch fallback path
   const result = await sendSlackNotification('Test message', {
     webhookUrl: undefined,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, false);
   assertEquals(mockFetchCalled, false);
+  assertEquals(mockCaptureExceptionCalled, true);
+  assertEquals((mockCaptureExceptionError as Error).message, 'SLACK_ADMIN_WEBHOOK_URL not configured');
+  assertEquals(mockCaptureExceptionContext?.operation, 'slack-notification');
+  assertEquals(mockCaptureExceptionContext?.reason, 'missing_webhook_url');
 });
 
 Deno.test('sendSlackNotification: sends simple text message', async () => {
@@ -41,11 +58,13 @@ Deno.test('sendSlackNotification: sends simple text message', async () => {
   const result = await sendSlackNotification('Test message', {
     webhookUrl: 'https://hooks.slack.com/test',
     fetchFn: mockFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, true);
   assertEquals(mockFetchCalled, true);
   assertEquals(mockFetchPayload, { text: 'Test message' });
+  assertEquals(mockCaptureExceptionCalled, false);
 });
 
 Deno.test('sendSlackNotification: sends structured message with blocks', async () => {
@@ -64,27 +83,35 @@ Deno.test('sendSlackNotification: sends structured message with blocks', async (
   const result = await sendSlackNotification(message, {
     webhookUrl: 'https://hooks.slack.com/test',
     fetchFn: mockFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, true);
   assertEquals(mockFetchCalled, true);
   assertEquals(mockFetchPayload, message);
+  assertEquals(mockCaptureExceptionCalled, false);
 });
 
-Deno.test('sendSlackNotification: returns false on fetch failure', async () => {
+Deno.test('sendSlackNotification: reports error to Sentry on fetch failure', async () => {
   resetMocks();
   mockFetchResponse = { ok: false };
 
   const result = await sendSlackNotification('Test message', {
     webhookUrl: 'https://hooks.slack.com/test',
     fetchFn: mockFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, false);
   assertEquals(mockFetchCalled, true);
+  assertEquals(mockCaptureExceptionCalled, true);
+  assertEquals((mockCaptureExceptionError as Error).message, 'Slack notification failed: 500 Internal Server Error');
+  assertEquals(mockCaptureExceptionContext?.operation, 'slack-notification');
+  assertEquals(mockCaptureExceptionContext?.reason, 'api_error');
+  assertEquals(mockCaptureExceptionContext?.status, 500);
 });
 
-Deno.test('sendSlackNotification: returns false on fetch exception', async () => {
+Deno.test('sendSlackNotification: reports error to Sentry on fetch exception', async () => {
   resetMocks();
 
   const throwingFetch = (): Promise<Response> => {
@@ -94,9 +121,14 @@ Deno.test('sendSlackNotification: returns false on fetch exception', async () =>
   const result = await sendSlackNotification('Test message', {
     webhookUrl: 'https://hooks.slack.com/test',
     fetchFn: throwingFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, false);
+  assertEquals(mockCaptureExceptionCalled, true);
+  assertEquals((mockCaptureExceptionError as Error).message, 'Network error');
+  assertEquals(mockCaptureExceptionContext?.operation, 'slack-notification');
+  assertEquals(mockCaptureExceptionContext?.reason, 'network_error');
 });
 
 Deno.test('notifyPendingPlasticType: sends formatted notification', async () => {
@@ -106,10 +138,12 @@ Deno.test('notifyPendingPlasticType: sends formatted notification', async () => 
     webhookUrl: 'https://hooks.slack.com/test',
     adminUrl: 'https://admin.discrapp.com',
     fetchFn: mockFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, true);
   assertEquals(mockFetchCalled, true);
+  assertEquals(mockCaptureExceptionCalled, false);
 
   // Check the payload structure
   const payload = mockFetchPayload as SlackMessage;
@@ -124,10 +158,12 @@ Deno.test('notifyPendingPlasticType: works without submitter email', async () =>
   const result = await notifyPendingPlasticType('Discraft', 'ESP FLX', undefined, {
     webhookUrl: 'https://hooks.slack.com/test',
     fetchFn: mockFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, true);
   assertEquals(mockFetchCalled, true);
+  assertEquals(mockCaptureExceptionCalled, false);
 
   // Check the payload - should have 3 blocks (no context block)
   const payload = mockFetchPayload as SlackMessage;
@@ -141,6 +177,7 @@ Deno.test('notifyPendingPlasticType: uses custom admin URL', async () => {
     webhookUrl: 'https://hooks.slack.com/test',
     adminUrl: 'https://custom-admin.example.com',
     fetchFn: mockFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   const payload = mockFetchPayload as SlackMessage;
@@ -148,16 +185,20 @@ Deno.test('notifyPendingPlasticType: uses custom admin URL', async () => {
     (b) => b.type === 'section' && b.text?.text?.includes('Review in Admin Dashboard')
   );
   assertEquals(linkBlock?.text?.text?.includes('custom-admin.example.com'), true);
+  assertEquals(mockCaptureExceptionCalled, false);
 });
 
-Deno.test('notifyPendingPlasticType: returns false when webhook not configured', async () => {
+Deno.test('notifyPendingPlasticType: reports error to Sentry when webhook not configured', async () => {
   resetMocks();
 
   const result = await notifyPendingPlasticType('Innova', 'Star', undefined, {
     webhookUrl: undefined,
     fetchFn: mockFetch,
+    captureExceptionFn: mockCaptureException,
   });
 
   assertEquals(result, false);
   assertEquals(mockFetchCalled, false);
+  assertEquals(mockCaptureExceptionCalled, true);
+  assertEquals((mockCaptureExceptionError as Error).message, 'SLACK_ADMIN_WEBHOOK_URL not configured');
 });
