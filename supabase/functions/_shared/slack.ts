@@ -1,7 +1,7 @@
 /**
  * Slack notification utilities for sending messages to Slack channels.
  *
- * Requires SLACK_WEBHOOK_URL environment variable to be set.
+ * Requires SLACK_ADMIN_WEBHOOK_URL environment variable to be set.
  * If not set, notifications will be silently skipped.
  */
 
@@ -44,12 +44,12 @@ export interface SlackOptions {
  * @returns true if sent successfully, false if skipped or failed
  */
 export async function sendSlackNotification(message: string | SlackMessage, options?: SlackOptions): Promise<boolean> {
-  const webhookUrl = options?.webhookUrl ?? Deno.env.get('SLACK_WEBHOOK_URL');
+  const webhookUrl = options?.webhookUrl ?? Deno.env.get('SLACK_ADMIN_WEBHOOK_URL');
   const fetchFn = options?.fetchFn ?? fetch;
 
   // Skip if webhook URL is not configured
   if (!webhookUrl) {
-    console.log('Slack notification skipped: SLACK_WEBHOOK_URL not configured');
+    console.log('Slack notification skipped: SLACK_ADMIN_WEBHOOK_URL not configured');
     return false;
   }
 
