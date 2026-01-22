@@ -64,22 +64,26 @@ const handler = async (req: Request): Promise<Response> => {
   });
 
   // Authenticate user
+  console.log('Authenticating user...');
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user) {
+    console.log('Auth failed:', authError?.message);
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
+  console.log('User authenticated:', user.id, 'role:', user.app_metadata?.role);
   setUser(user.id);
 
   // Check if user is admin
   const userRole = user.app_metadata?.role;
   if (userRole !== 'admin') {
+    console.log('User is not admin, role:', userRole);
     return new Response(JSON.stringify({ error: 'Admin access required' }), {
       status: 403,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -115,22 +119,28 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     // Use service role to access all plastic types
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    console.log('Service role key present:', !!serviceRoleKey);
     const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
     // Get the plastic type
+    console.log('Fetching plastic type:', body.plastic_id);
     const { data: plastic, error: fetchError } = await serviceClient
       .from('plastic_types')
       .select('*')
       .eq('id', body.plastic_id)
       .single();
 
+    console.log('Fetch result:', { plastic: !!plastic, error: fetchError?.message });
+
     if (fetchError || !plastic) {
+      console.log('Plastic type not found, error:', fetchError);
       return new Response(JSON.stringify({ error: 'Plastic type not found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    console.log('Plastic type found, status:', plastic.status);
     if (plastic.status !== 'pending') {
       return new Response(JSON.stringify({ error: 'Plastic type is not pending' }), {
         status: 400,
@@ -140,6 +150,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (body.action === 'approve') {
       // Update status to approved
+      console.log('Approving plastic type...');
       const { data: updated, error: updateError } = await serviceClient
         .from('plastic_types')
         .update({
@@ -150,7 +161,9 @@ const handler = async (req: Request): Promise<Response> => {
         .select()
         .single();
 
+      console.log('Update result:', { updated: !!updated, error: updateError?.message });
       if (updateError) {
+        console.error('Update error:', updateError);
         captureException(updateError, { operation: 'approve-plastic-type', plasticId: body.plastic_id });
         return new Response(JSON.stringify({ error: 'Failed to approve plastic type' }), {
           status: 500,
@@ -214,6 +227,7 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
   } catch (error) {
+    console.error('Unexpected error:', error);
     captureException(error, { operation: 'approve-plastic-type', plasticId: body.plastic_id });
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
