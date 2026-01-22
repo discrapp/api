@@ -114,6 +114,7 @@ function mockSupabaseClient() {
 interface MockClaudeResponse {
   manufacturer: string | null;
   mold: string | null;
+  disc_type: string | null;
   flight_numbers: { speed: number; glide: number; turn: number; fade: number } | null;
   plastic: string | null;
   confidence: number;
@@ -124,6 +125,7 @@ function createMockClaudeResponse(data: Partial<MockClaudeResponse> = {}): MockC
   return {
     manufacturer: Object.hasOwn(data, 'manufacturer') ? (data.manufacturer as string | null) : 'Innova',
     mold: Object.hasOwn(data, 'mold') ? (data.mold as string | null) : 'Destroyer',
+    disc_type: Object.hasOwn(data, 'disc_type') ? (data.disc_type as string | null) : 'Distance Driver',
     flight_numbers: Object.hasOwn(data, 'flight_numbers')
       ? (data.flight_numbers as { speed: number; glide: number; turn: number; fade: number } | null)
       : { speed: 12, glide: 5, turn: -1, fade: 3 },
@@ -275,6 +277,7 @@ Deno.test('identify-disc-from-photo: should successfully identify disc with cata
       identification: {
         manufacturer: claudeResponse.manufacturer,
         mold: claudeResponse.mold,
+        disc_type: claudeResponse.disc_type,
         confidence: claudeResponse.confidence,
         raw_text: claudeResponse.visible_text,
         flight_numbers: claudeResponse.flight_numbers,
@@ -342,6 +345,7 @@ Deno.test('identify-disc-from-photo: should return similar matches when no exact
       identification: {
         manufacturer: claudeResponse.manufacturer,
         mold: claudeResponse.mold,
+        disc_type: claudeResponse.disc_type,
         confidence: claudeResponse.confidence,
         raw_text: claudeResponse.visible_text,
       },
@@ -369,6 +373,7 @@ Deno.test('identify-disc-from-photo: should handle low confidence identification
   const claudeResponse = createMockClaudeResponse({
     manufacturer: null,
     mold: null,
+    disc_type: null,
     confidence: 0.3,
     visible_text: 'Unable to clearly identify. Appears to be a putter with worn stamp.',
   });
@@ -378,6 +383,7 @@ Deno.test('identify-disc-from-photo: should handle low confidence identification
       identification: {
         manufacturer: claudeResponse.manufacturer,
         mold: claudeResponse.mold,
+        disc_type: claudeResponse.disc_type,
         confidence: claudeResponse.confidence,
         raw_text: claudeResponse.visible_text,
       },

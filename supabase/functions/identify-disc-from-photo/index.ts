@@ -33,6 +33,7 @@ interface ClaudeVisionResponse {
 interface DiscIdentification {
   manufacturer: string | null;
   mold: string | null;
+  disc_type: string | null;
   flight_numbers: {
     speed: number | null;
     glide: number | null;
@@ -63,6 +64,7 @@ READ TEXT CAREFULLY - look for:
 - Disc MODEL NAME (largest text, often in arc shape): Destroyer, Leopard, Buzzz, Teebird, etc.
 - MANUFACTURER: Innova (star logo), Discraft, MVP, Discmania, Latitude 64, Dynamic Discs
 - PLASTIC TYPE (small text): DX, Pro, Champion, Star, GStar, Halo, ESP, Z, Neutron
+- DISC TYPE (often printed on disc): Distance Driver, Fairway Driver, Midrange, Putter, Control Driver, Hybrid Driver, Approach
 
 COMMON DISCS BY BRAND:
 Innova: Destroyer, Wraith, Firebird, Thunderbird, Valkyrie, Leopard, Teebird, Roc3, Mako3, Aviar, Pig
@@ -71,9 +73,9 @@ MVP/Axiom: Tesla, Volt, Reactor, Hex, Envy, Proxy
 Discmania: DD3, PD, FD, MD3, P2
 
 Return ONLY this JSON (no other text):
-{"manufacturer":"string","mold":"string","flight_numbers":{"speed":N,"glide":N,"turn":N,"fade":N},"plastic":"string or null","color":"Red|Orange|Yellow|Green|Blue|Purple|Pink|White|Black|Gray|Multi","confidence":0.0-1.0,"visible_text":"describe all text/logos seen"}
+{"manufacturer":"string","mold":"string","disc_type":"Distance Driver|Fairway Driver|Midrange|Putter|Control Driver|Hybrid Driver|Approach|null","flight_numbers":{"speed":N,"glide":N,"turn":N,"fade":N},"plastic":"string or null","color":"Red|Orange|Yellow|Green|Blue|Purple|Pink|White|Black|Gray|Multi","confidence":0.0-1.0,"visible_text":"describe all text/logos seen"}
 
-IMPORTANT: ALWAYS guess manufacturer and mold. Spell out partial letters you see. Users can correct mistakes.`;
+IMPORTANT: ALWAYS guess manufacturer and mold. Spell out partial letters you see. Users can correct mistakes. If disc type is printed on the disc, include it in disc_type.`;
 
 const handler = async (req: Request): Promise<Response> => {
   // Only allow POST requests
@@ -358,6 +360,7 @@ const handler = async (req: Request): Promise<Response> => {
         identification: {
           manufacturer: identification.manufacturer,
           mold: identification.mold,
+          disc_type: identification.disc_type,
           confidence: identification.confidence,
           raw_text: identification.visible_text,
           flight_numbers: identification.flight_numbers,
