@@ -62,15 +62,32 @@ const CLAUDE_PROMPT = `You are an expert disc golf disc identifier. ALWAYS make 
 
 READ TEXT CAREFULLY - look for:
 - Disc MODEL NAME (largest text, often in arc shape): Destroyer, Leopard, Buzzz, Teebird, etc.
-- MANUFACTURER: Innova (star logo), Discraft, MVP, Discmania, Latitude 64, Dynamic Discs
-- PLASTIC TYPE (small text): DX, Pro, Champion, Star, GStar, Halo, ESP, Z, Neutron
+- MANUFACTURER: Innova (star logo), Discraft, MVP, Discmania, Latitude 64, Dynamic Discs, Prodigy, Wild Discs, Westside Discs, Legacy Discs, Kastaplast, Thought Space Athletics
+- PLASTIC TYPE (small text, separate from mold name): DX, Pro, Champion, Star, GStar, Halo, ESP, Z, Neutron, 400, 300, 750
 - DISC TYPE (often printed on disc): Distance Driver, Fairway Driver, Midrange, Putter, Control Driver, Hybrid Driver, Approach
 
+IMPORTANT - MOLD vs PLASTIC:
+- Mold is JUST the disc name (e.g., "Rhyno", "Destroyer", "Buzzz")
+- Do NOT include plastic in mold (wrong: "Champion Rhyno", right: mold="Rhyno", plastic="Champion")
+- Do NOT include manufacturer in mold (wrong: "Innova Destroyer", right: manufacturer="Innova", mold="Destroyer")
+
+PRODIGY NAMING - Their discs use this format:
+- D = Distance Driver (D1, D2, D3, D4, D Model S, D Model OS, D Model US)
+- F = Fairway Driver (F1, F2, F3, F5, F7, F Model S, F Model OS)
+- M = Midrange (M1, M2, M3, M4, M Model S, M Model US)
+- P = Putter (PA-1, PA-2, PA-3, PA-4, PA-5, P Model S, P Model OS, P Model US)
+- Look for "MODEL" text to distinguish P Model S from PA-3
+
 COMMON DISCS BY BRAND:
-Innova: Destroyer, Wraith, Firebird, Thunderbird, Valkyrie, Leopard, Teebird, Roc3, Mako3, Aviar, Pig
-Discraft: Zeus, Nuke, Force, Undertaker, Buzzz, Zone, Luna
-MVP/Axiom: Tesla, Volt, Reactor, Hex, Envy, Proxy
-Discmania: DD3, PD, FD, MD3, P2
+Innova: Destroyer, Wraith, Firebird, Thunderbird, Valkyrie, Leopard, Teebird, Eagle, IT, Boss, Roc3, Mako3, Aviar, Pig, Rhyno
+Discraft: Zeus, Nuke, Force, Undertaker, Buzzz, Zone, Luna, Meteor, Heat
+MVP/Axiom: Tesla, Volt, Reactor, Hex, Envy, Proxy, Crave, Insanity
+Discmania: DD3, CD1, CD2, CD3, PD, PD2, FD, FD3, MD3, P2, Sensei (Note: CD1 and CD2 are DIFFERENT discs)
+Prodigy: D1, D2, D3, F1, F2, F3, F5, M1, M2, M3, M4, PA-3, P Model S, P Model OS
+Dynamic Discs: Felon, Trespass, Escape, Maverick, Emac Truth, Judge
+Latitude 64: Compass, Explorer, River, Saint, Grace, Pure
+Westside Discs: Tursas, Hatchet, Sword, World, Harp
+Wild Discs: Angler, Sea Otter
 
 Return ONLY this JSON (no other text):
 {"manufacturer":"string","mold":"string","disc_type":"Distance Driver|Fairway Driver|Midrange|Putter|Control Driver|Hybrid Driver|Approach|null","flight_numbers":{"speed":N,"glide":N,"turn":N,"fade":N},"plastic":"string or null","color":"Red|Orange|Yellow|Green|Blue|Purple|Pink|White|Black|Gray|Multi","confidence":0.0-1.0,"visible_text":"describe all text/logos seen"}

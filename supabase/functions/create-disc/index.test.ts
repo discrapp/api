@@ -252,3 +252,107 @@ Deno.test('create-disc: should call captureException on database error', async (
     assertEquals(capturedContext.userId, 'user-123');
   }
 });
+
+// Tests for was_corrected logic
+Deno.test('create-disc: isSameValue should match identical strings', () => {
+  const normalize = (s: string | null | undefined): string => (s || '').toLowerCase().trim();
+  const isSameValue = (ai: string | null | undefined, user: string | null | undefined): boolean => {
+    const aiNorm = normalize(ai);
+    const userNorm = normalize(user);
+    if (aiNorm === userNorm) return true;
+    if (!aiNorm || !userNorm) return aiNorm === userNorm;
+    return aiNorm.includes(userNorm) || userNorm.includes(aiNorm);
+  };
+
+  assertEquals(isSameValue('Innova', 'Innova'), true);
+  assertEquals(isSameValue('Destroyer', 'Destroyer'), true);
+});
+
+Deno.test('create-disc: isSameValue should be case-insensitive', () => {
+  const normalize = (s: string | null | undefined): string => (s || '').toLowerCase().trim();
+  const isSameValue = (ai: string | null | undefined, user: string | null | undefined): boolean => {
+    const aiNorm = normalize(ai);
+    const userNorm = normalize(user);
+    if (aiNorm === userNorm) return true;
+    if (!aiNorm || !userNorm) return aiNorm === userNorm;
+    return aiNorm.includes(userNorm) || userNorm.includes(aiNorm);
+  };
+
+  assertEquals(isSameValue('Innova', 'INNOVA'), true);
+  assertEquals(isSameValue('destroyer', 'Destroyer'), true);
+  assertEquals(isSameValue('STAR', 'star'), true);
+});
+
+Deno.test('create-disc: isSameValue should handle whitespace', () => {
+  const normalize = (s: string | null | undefined): string => (s || '').toLowerCase().trim();
+  const isSameValue = (ai: string | null | undefined, user: string | null | undefined): boolean => {
+    const aiNorm = normalize(ai);
+    const userNorm = normalize(user);
+    if (aiNorm === userNorm) return true;
+    if (!aiNorm || !userNorm) return aiNorm === userNorm;
+    return aiNorm.includes(userNorm) || userNorm.includes(aiNorm);
+  };
+
+  assertEquals(isSameValue('  Innova  ', 'Innova'), true);
+  assertEquals(isSameValue('Destroyer', '  Destroyer  '), true);
+});
+
+Deno.test('create-disc: isSameValue should match partial strings (mold in plastic+mold)', () => {
+  const normalize = (s: string | null | undefined): string => (s || '').toLowerCase().trim();
+  const isSameValue = (ai: string | null | undefined, user: string | null | undefined): boolean => {
+    const aiNorm = normalize(ai);
+    const userNorm = normalize(user);
+    if (aiNorm === userNorm) return true;
+    if (!aiNorm || !userNorm) return aiNorm === userNorm;
+    return aiNorm.includes(userNorm) || userNorm.includes(aiNorm);
+  };
+
+  // AI said "Champion Rhyno", user said "Rhyno" - should be same (Rhyno is substring of Champion Rhyno)
+  assertEquals(isSameValue('Champion Rhyno', 'Rhyno'), true);
+  // AI said "Westside", user said "Westside Discs" - should be same (Westside is substring)
+  assertEquals(isSameValue('Westside', 'Westside Discs'), true);
+  // AI said "Star Destroyer", user said "Destroyer" - should be same
+  assertEquals(isSameValue('Star Destroyer', 'Destroyer'), true);
+  // AI said "McBeth", user said "Paul McBeth" - should be same
+  assertEquals(isSameValue('McBeth', 'Paul McBeth'), true);
+});
+
+Deno.test('create-disc: isSameValue should detect real differences', () => {
+  const normalize = (s: string | null | undefined): string => (s || '').toLowerCase().trim();
+  const isSameValue = (ai: string | null | undefined, user: string | null | undefined): boolean => {
+    const aiNorm = normalize(ai);
+    const userNorm = normalize(user);
+    if (aiNorm === userNorm) return true;
+    if (!aiNorm || !userNorm) return aiNorm === userNorm;
+    return aiNorm.includes(userNorm) || userNorm.includes(aiNorm);
+  };
+
+  // Different manufacturers
+  assertEquals(isSameValue('Innova', 'Discraft'), false);
+  // Different molds
+  assertEquals(isSameValue('Destroyer', 'Wraith'), false);
+  // CD2 vs CD1 - these are different discs
+  assertEquals(isSameValue('CD2', 'CD1'), false);
+  // PA-3 vs P Model OS - different naming
+  assertEquals(isSameValue('PA-3', 'P Model OS'), false);
+  // Eagle vs IT - different discs
+  assertEquals(isSameValue('Eagle', 'IT'), false);
+});
+
+Deno.test('create-disc: isSameValue should handle null/undefined', () => {
+  const normalize = (s: string | null | undefined): string => (s || '').toLowerCase().trim();
+  const isSameValue = (ai: string | null | undefined, user: string | null | undefined): boolean => {
+    const aiNorm = normalize(ai);
+    const userNorm = normalize(user);
+    if (aiNorm === userNorm) return true;
+    if (!aiNorm || !userNorm) return aiNorm === userNorm;
+    return aiNorm.includes(userNorm) || userNorm.includes(aiNorm);
+  };
+
+  assertEquals(isSameValue(null, null), true);
+  assertEquals(isSameValue(undefined, undefined), true);
+  assertEquals(isSameValue('', ''), true);
+  assertEquals(isSameValue(null, ''), true);
+  assertEquals(isSameValue('Innova', null), false);
+  assertEquals(isSameValue(null, 'Innova'), false);
+});

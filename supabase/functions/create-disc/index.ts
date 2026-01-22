@@ -145,12 +145,26 @@ const handler = async (req: Request): Promise<Response> => {
       .single();
 
     if (aiLog) {
-      // Check if user made any corrections
+      // Helper to normalize strings for comparison (case-insensitive, trimmed)
+      const normalize = (s: string | null | undefined): string => (s || '').toLowerCase().trim();
+
+      // Helper to check if two values are effectively the same
+      // Handles cases like "Champion Rhyno" matching "Rhyno" or "Westside" matching "Westside Discs"
+      const isSameValue = (ai: string | null | undefined, user: string | null | undefined): boolean => {
+        const aiNorm = normalize(ai);
+        const userNorm = normalize(user);
+        if (aiNorm === userNorm) return true;
+        if (!aiNorm || !userNorm) return aiNorm === userNorm;
+        // Check if one contains the other (handles "Champion Rhyno" vs "Rhyno")
+        return aiNorm.includes(userNorm) || userNorm.includes(aiNorm);
+      };
+
+      // Check if user made any REAL corrections (not just formatting differences)
       const wasCorrected =
-        (aiLog.ai_manufacturer || '') !== (body.manufacturer || '') ||
-        (aiLog.ai_mold || '') !== (body.mold || '') ||
-        (aiLog.ai_plastic || '') !== (body.plastic || '') ||
-        (aiLog.ai_color || '') !== (body.color || '');
+        !isSameValue(aiLog.ai_manufacturer, body.manufacturer) ||
+        !isSameValue(aiLog.ai_mold, body.mold) ||
+        !isSameValue(aiLog.ai_plastic, body.plastic) ||
+        !isSameValue(aiLog.ai_color, body.color);
 
       // Update the log with user's final values and correction status
       await supabaseAdmin
