@@ -156,6 +156,8 @@ export async function postSlackMessage(
         channel: channelId,
         text: message.text,
         blocks: message.blocks,
+        unfurl_links: false,
+        unfurl_media: false,
       }),
     });
 
