@@ -137,10 +137,20 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
-    // Send Slack notification for admin review (non-blocking)
-    notifyPendingPlasticType(manufacturer, plasticName, user.email).catch((err) => {
-      console.error('Failed to send Slack notification:', err);
-    });
+    // Send Slack notification for admin review and store the message ts
+    const slackResult = await notifyPendingPlasticType(manufacturer, plasticName, user.email);
+
+    if (slackResult.success && slackResult.ts && newPlastic) {
+      // Use service role to update the slack_message_ts (user doesn't have UPDATE permission)
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+      if (serviceRoleKey) {
+        const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+        await serviceClient
+          .from('plastic_types')
+          .update({ slack_message_ts: slackResult.ts })
+          .eq('id', newPlastic.id);
+      }
+    }
 
     return new Response(
       JSON.stringify({

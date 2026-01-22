@@ -3,6 +3,53 @@
 This file contains persistent context for Claude Code sessions on this project.
 It will be automatically loaded at the start of every session.
 
+## MANDATORY: Pre-PR Checklist (HARD GATE)
+
+**STOP. Before running `git push` or `gh pr create`, you MUST complete this
+checklist. This is NOT optional. Failure to follow this has repeatedly caused
+CI failures and wasted time.**
+
+### For ANY new edge function:
+
+```bash
+# 1. Verify test file EXISTS (if it doesn't, STOP and write tests first)
+ls supabase/functions/<function-name>/index.test.ts
+# If "No such file" -> STOP. Write tests BEFORE pushing.
+
+# 2. Run tests for the new function
+deno test --allow-all supabase/functions/<function-name>/
+
+# 3. Run full coverage check
+./scripts/test-coverage.sh
+# If coverage dropped -> STOP. Write missing tests BEFORE pushing.
+```
+
+### For ANY code changes:
+
+```bash
+# 1. Type check ALL files
+deno check supabase/functions/**/*.ts
+
+# 2. Run full test suite with coverage
+./scripts/test-coverage.sh
+
+# 3. Verify coverage didn't drop (compare to previous run)
+# If it dropped -> STOP. You wrote code without tests. Fix it.
+```
+
+### Checklist before EVERY push:
+
+- [ ] Every new `.ts` file has a corresponding `.test.ts` file
+- [ ] Tests were written BEFORE implementation (TDD)
+- [ ] `deno check` passes with no errors
+- [ ] `./scripts/test-coverage.sh` passes
+- [ ] Coverage did NOT decrease
+
+**If you skip this checklist and CI fails, you must fix it immediately before
+doing anything else.**
+
+---
+
 ## Project Overview
 
 This is the Supabase backend for Discr, containing database migrations, edge
@@ -845,31 +892,42 @@ return internalError('Database error', ErrorCode.DATABASE_ERROR);
 
 ### Adding a New Edge Function
 
-1. Create directory and files:
+**WARNING: NEVER create an edge function without a test file. The test file MUST
+be created and have tests written BEFORE you write any implementation code.**
+
+1. Create directory and files (TEST FILE IS MANDATORY):
 
 ```bash
 mkdir supabase/functions/my-endpoint
+touch supabase/functions/my-endpoint/index.test.ts  # CREATE THIS FIRST
 touch supabase/functions/my-endpoint/index.ts
-touch supabase/functions/my-endpoint/index.test.ts
 echo '{}' > supabase/functions/my-endpoint/deno.json
 ```
 
-1. Write test FIRST (TDD):
+1. Write COMPREHENSIVE tests FIRST (TDD) - cover ALL code paths:
 
 ```typescript
-// index.test.ts
-Deno.test('my-endpoint: returns 405 for non-POST', async () => {
-  // Test implementation
-});
+// index.test.ts - Write ALL these tests BEFORE writing index.ts
+Deno.test('my-endpoint: returns 405 for non-POST', async () => { ... });
+Deno.test('my-endpoint: returns 401 when no auth', async () => { ... });
+Deno.test('my-endpoint: returns 401 when invalid auth', async () => { ... });
+Deno.test('my-endpoint: returns 400 for invalid JSON', async () => { ... });
+Deno.test('my-endpoint: returns 400 when field missing', async () => { ... });
+Deno.test('my-endpoint: returns 500 on database error', async () => { ... });
+Deno.test('my-endpoint: succeeds with valid input', async () => { ... });
+// ... test EVERY branch in your code
 ```
 
-1. Implement handler following the pattern above
+1. Implement handler to make tests pass
 
-1. Run tests:
+1. Run tests and verify coverage:
 
 ```bash
 deno test --allow-all supabase/functions/my-endpoint/
+./scripts/test-coverage.sh  # Coverage must not drop
 ```
+
+1. **BEFORE PUSHING**: Complete the Pre-PR Checklist at the top of this file
 
 ### Adding a New Database Table
 
