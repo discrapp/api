@@ -35,11 +35,19 @@ type MockDisc = {
   name: string;
   manufacturer?: string;
   mold: string;
+  plastic?: string | null;
   flight_numbers?: Record<string, number>;
   created_at: string;
   photos?: MockDiscPhoto[];
   qr_code?: MockQrCode | null;
   recovery_events?: MockRecoveryEvent[];
+};
+
+type MockPlasticType = {
+  id: string;
+  manufacturer: string;
+  plastic_name: string;
+  status: 'official' | 'approved' | 'pending';
 };
 
 // Mock data storage
@@ -48,6 +56,7 @@ let mockDiscs: MockDisc[] = [];
 let mockDiscPhotos: MockDiscPhoto[] = [];
 let mockQrCodes: Map<string, MockQrCode> = new Map();
 let mockRecoveryEvents: Map<string, MockRecoveryEvent[]> = new Map();
+let mockPlasticTypes: MockPlasticType[] = [];
 
 // Storage mock tracking
 let createSignedUrlsCalls: string[][] = [];
@@ -59,6 +68,7 @@ function resetMocks() {
   mockDiscPhotos = [];
   mockQrCodes = new Map();
   mockRecoveryEvents = new Map();
+  mockPlasticTypes = [];
   createSignedUrlsCalls = [];
 }
 
@@ -105,6 +115,14 @@ function mockSupabaseClient() {
             return Promise.resolve({ data: [], error: null });
           },
         }),
+        in: (column: string, values: string[]) => {
+          if (table === 'plastic_types' && column === 'status') {
+            // Filter plastic types by status
+            const filtered = mockPlasticTypes.filter((pt) => values.includes(pt.status));
+            return Promise.resolve({ data: filtered, error: null });
+          }
+          return Promise.resolve({ data: [], error: null });
+        },
       }),
       insert: (
         values: Partial<MockDisc> | Partial<MockDiscPhoto> | Partial<MockDisc>[] | Partial<MockDiscPhoto>[]
@@ -834,4 +852,202 @@ Deno.test('get-user-discs: should handle mixed discs (some with photos, some wit
   // Verify only ONE batch call was made for the 2 photos
   assertEquals(createSignedUrlsCalls.length, 1);
   assertEquals(createSignedUrlsCalls[0].length, 2);
+});
+
+// ============================================================================
+// Plastic Type Validation Tests
+// Issue: If a plastic type is deleted/rejected, discs should not show it
+// ============================================================================
+
+Deno.test('get-user-discs: should validate plastic types exist in plastic_types table', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  // Add valid plastic types to the mock
+  mockPlasticTypes.push(
+    { id: 'pt-1', manufacturer: 'Innova', plastic_name: 'Star', status: 'official' },
+    { id: 'pt-2', manufacturer: 'Innova', plastic_name: 'Champion', status: 'approved' }
+  );
+
+  // Create discs with different plastic types
+  const disc1: MockDisc = {
+    id: 'disc-1',
+    owner_id: mockUser.id,
+    name: 'Disc with valid plastic',
+    mold: 'Destroyer',
+    plastic: 'Star', // This exists in plastic_types as official
+    created_at: new Date('2024-01-01').toISOString(),
+  };
+  mockDiscs.push(disc1);
+
+  const disc2: MockDisc = {
+    id: 'disc-2',
+    owner_id: mockUser.id,
+    name: 'Disc with deleted plastic',
+    mold: 'Wraith',
+    plastic: 'Deleted Plastic', // This does NOT exist in plastic_types
+    created_at: new Date('2024-01-02').toISOString(),
+  };
+  mockDiscs.push(disc2);
+
+  const disc3: MockDisc = {
+    id: 'disc-3',
+    owner_id: mockUser.id,
+    name: 'Disc with approved plastic',
+    mold: 'Teebird',
+    plastic: 'Champion', // This exists in plastic_types as approved
+    created_at: new Date('2024-01-03').toISOString(),
+  };
+  mockDiscs.push(disc3);
+
+  const supabase = mockSupabaseClient();
+
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  // Fetch discs
+  const { data: discs } = await supabase
+    .from('discs')
+    .select('*, photos:disc_photos(*), qr_code:qr_codes(*), recovery_events(*)')
+    .eq('owner_id', authData.user.id)
+    .order('created_at', { ascending: false });
+
+  assertExists(discs);
+  assertEquals(discs.length, 3);
+
+  // Get valid plastic types (official or approved status)
+  const { data: validPlastics } = await supabase
+    .from('plastic_types')
+    .select('plastic_name')
+    .in('status', ['official', 'approved']);
+
+  assertExists(validPlastics);
+  const validPlasticNames = new Set(validPlastics.map((p: MockPlasticType) => p.plastic_name));
+
+  // Validate plastics - clear invalid ones
+  const validatedDiscs = discs.map((disc: MockDisc) => ({
+    ...disc,
+    plastic: disc.plastic && validPlasticNames.has(disc.plastic) ? disc.plastic : null,
+  }));
+
+  // Disc with valid "Star" plastic should keep it
+  const validatedDisc1 = validatedDiscs.find((d: MockDisc) => d.id === 'disc-1');
+  assertExists(validatedDisc1);
+  assertEquals(validatedDisc1.plastic, 'Star');
+
+  // Disc with invalid "Deleted Plastic" should have plastic set to null
+  const validatedDisc2 = validatedDiscs.find((d: MockDisc) => d.id === 'disc-2');
+  assertExists(validatedDisc2);
+  assertEquals(validatedDisc2.plastic, null);
+
+  // Disc with valid "Champion" plastic should keep it
+  const validatedDisc3 = validatedDiscs.find((d: MockDisc) => d.id === 'disc-3');
+  assertExists(validatedDisc3);
+  assertEquals(validatedDisc3.plastic, 'Champion');
+});
+
+Deno.test('get-user-discs: should not clear plastic for discs with no plastic set', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  // Add valid plastic types
+  mockPlasticTypes.push({ id: 'pt-1', manufacturer: 'Innova', plastic_name: 'Star', status: 'official' });
+
+  // Create disc with no plastic
+  const disc1: MockDisc = {
+    id: 'disc-1',
+    owner_id: mockUser.id,
+    name: 'Disc with no plastic',
+    mold: 'Destroyer',
+    plastic: null,
+    created_at: new Date('2024-01-01').toISOString(),
+  };
+  mockDiscs.push(disc1);
+
+  const supabase = mockSupabaseClient();
+
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: discs } = await supabase
+    .from('discs')
+    .select('*, photos:disc_photos(*), qr_code:qr_codes(*), recovery_events(*)')
+    .eq('owner_id', authData.user.id)
+    .order('created_at', { ascending: false });
+
+  assertExists(discs);
+
+  // Get valid plastic types
+  const { data: validPlastics } = await supabase
+    .from('plastic_types')
+    .select('plastic_name')
+    .in('status', ['official', 'approved']);
+
+  assertExists(validPlastics);
+  const validPlasticNames = new Set(validPlastics.map((p: MockPlasticType) => p.plastic_name));
+
+  // Validate plastics
+  const validatedDiscs = discs.map((disc: MockDisc) => ({
+    ...disc,
+    plastic: disc.plastic && validPlasticNames.has(disc.plastic) ? disc.plastic : null,
+  }));
+
+  // Disc with null plastic should remain null
+  const validatedDisc1 = validatedDiscs.find((d: MockDisc) => d.id === 'disc-1');
+  assertExists(validatedDisc1);
+  assertEquals(validatedDisc1.plastic, null);
+});
+
+Deno.test('get-user-discs: should not include pending plastic types as valid', async () => {
+  resetMocks();
+  mockUser = { id: 'user-123', email: 'test@example.com' };
+
+  // Add plastic type with pending status (should NOT be valid)
+  mockPlasticTypes.push({ id: 'pt-1', manufacturer: 'Innova', plastic_name: 'Pending Plastic', status: 'pending' });
+
+  // Create disc with pending plastic
+  const disc1: MockDisc = {
+    id: 'disc-1',
+    owner_id: mockUser.id,
+    name: 'Disc with pending plastic',
+    mold: 'Destroyer',
+    plastic: 'Pending Plastic',
+    created_at: new Date('2024-01-01').toISOString(),
+  };
+  mockDiscs.push(disc1);
+
+  const supabase = mockSupabaseClient();
+
+  const { data: authData } = await supabase.auth.getUser();
+  assertExists(authData.user);
+
+  const { data: discs } = await supabase
+    .from('discs')
+    .select('*, photos:disc_photos(*), qr_code:qr_codes(*), recovery_events(*)')
+    .eq('owner_id', authData.user.id)
+    .order('created_at', { ascending: false });
+
+  assertExists(discs);
+
+  // Get valid plastic types (only official or approved - NOT pending)
+  const { data: validPlastics } = await supabase
+    .from('plastic_types')
+    .select('plastic_name')
+    .in('status', ['official', 'approved']);
+
+  assertExists(validPlastics);
+  assertEquals(validPlastics.length, 0); // No valid plastics since our only one is pending
+
+  const validPlasticNames = new Set(validPlastics.map((p: MockPlasticType) => p.plastic_name));
+
+  // Validate plastics
+  const validatedDiscs = discs.map((disc: MockDisc) => ({
+    ...disc,
+    plastic: disc.plastic && validPlasticNames.has(disc.plastic) ? disc.plastic : null,
+  }));
+
+  // Pending plastic should be cleared
+  const validatedDisc1 = validatedDiscs.find((d: MockDisc) => d.id === 'disc-1');
+  assertExists(validatedDisc1);
+  assertEquals(validatedDisc1.plastic, null);
 });

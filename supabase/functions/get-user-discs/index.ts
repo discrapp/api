@@ -102,6 +102,20 @@ const handler = async (req: Request): Promise<Response> => {
     }
   }
 
+  // Validate plastic types exist in plastic_types table
+  // Only include plastics that are official or approved (not pending or deleted)
+  const validPlasticNames = new Set<string>();
+  const { data: validPlastics } = await supabase
+    .from('plastic_types')
+    .select('plastic_name')
+    .in('status', ['official', 'approved']);
+
+  if (validPlastics) {
+    for (const plastic of validPlastics) {
+      validPlasticNames.add(plastic.plastic_name);
+    }
+  }
+
   // Process discs and map signed URLs back to photos
   const discsWithPhotoUrls = (discs || []).map((disc) => {
     // Map photos with their pre-generated signed URLs
@@ -131,8 +145,15 @@ const handler = async (req: Request): Promise<Response> => {
     // Remove recovery_events from response and add processed fields
     const { recovery_events: _, ...discWithoutRecoveries } = disc;
 
+    // Validate plastic type - clear if it doesn't exist in plastic_types table
+    const validatedPlastic =
+      discWithoutRecoveries.plastic && validPlasticNames.has(discWithoutRecoveries.plastic)
+        ? discWithoutRecoveries.plastic
+        : null;
+
     return {
       ...discWithoutRecoveries,
+      plastic: validatedPlastic,
       photos: photosWithUrls,
       active_recovery: activeRecovery,
       was_surrendered: wasSurrendered,
