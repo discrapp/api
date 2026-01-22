@@ -128,6 +128,36 @@ function mockNotifyPlasticTypeRejected(
 }
 
 // ============================================
+// CORS tests
+// ============================================
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || 'https://admin.discrapp.com',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+Deno.test('approve-plastic-type: returns 200 for OPTIONS preflight request', async () => {
+  resetMocks();
+
+  // OPTIONS preflight should return 200 with CORS headers
+  const response = new Response('ok', { headers: corsHeaders });
+
+  assertEquals(response.status, 200);
+  assertEquals(response.headers.get('Access-Control-Allow-Methods'), 'POST, OPTIONS');
+  assertEquals(response.headers.get('Access-Control-Allow-Headers'), 'authorization, x-client-info, apikey, content-type');
+});
+
+Deno.test('approve-plastic-type: CORS headers use restricted origin not wildcard', () => {
+  const origin = corsHeaders['Access-Control-Allow-Origin'];
+
+  // Should NOT be a wildcard
+  assertEquals(origin !== '*', true);
+  // Should be a specific domain
+  assertEquals(origin.includes('discrapp.com'), true);
+});
+
+// ============================================
 // Method validation tests
 // ============================================
 
@@ -137,12 +167,14 @@ Deno.test('approve-plastic-type: returns 405 for non-POST requests', async () =>
   // GET request should fail
   const response = new Response(JSON.stringify({ error: 'Method not allowed' }), {
     status: 405,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 
   assertEquals(response.status, 405);
   const data = await response.json();
   assertEquals(data.error, 'Method not allowed');
+  // Should include CORS headers
+  assertEquals(response.headers.get('Access-Control-Allow-Origin')?.includes('discrapp.com'), true);
 });
 
 // ============================================

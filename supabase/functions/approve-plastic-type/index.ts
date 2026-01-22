@@ -22,17 +22,28 @@ import { notifyPlasticTypeApproved, notifyPlasticTypeRejected } from '../_shared
  * - 404 if plastic type not found
  */
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || 'https://admin.discrapp.com',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 interface ApprovePlasticTypeRequest {
   plastic_id: string;
   action: 'approve' | 'reject';
 }
 
 const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -41,7 +52,7 @@ const handler = async (req: Request): Promise<Response> => {
   if (!authHeader) {
     return new Response(JSON.stringify({ error: 'Authorization required' }), {
       status: 401,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -60,7 +71,7 @@ const handler = async (req: Request): Promise<Response> => {
   if (authError || !user) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -71,7 +82,7 @@ const handler = async (req: Request): Promise<Response> => {
   if (userRole !== 'admin') {
     return new Response(JSON.stringify({ error: 'Admin access required' }), {
       status: 403,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -82,7 +93,7 @@ const handler = async (req: Request): Promise<Response> => {
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
       status: 400,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -90,14 +101,14 @@ const handler = async (req: Request): Promise<Response> => {
   if (!body.plastic_id) {
     return new Response(JSON.stringify({ error: 'plastic_id is required' }), {
       status: 400,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
   if (!body.action || !['approve', 'reject'].includes(body.action)) {
     return new Response(JSON.stringify({ error: 'action must be "approve" or "reject"' }), {
       status: 400,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -116,14 +127,14 @@ const handler = async (req: Request): Promise<Response> => {
     if (fetchError || !plastic) {
       return new Response(JSON.stringify({ error: 'Plastic type not found' }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     if (plastic.status !== 'pending') {
       return new Response(JSON.stringify({ error: 'Plastic type is not pending' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -143,7 +154,7 @@ const handler = async (req: Request): Promise<Response> => {
         captureException(updateError, { operation: 'approve-plastic-type', plasticId: body.plastic_id });
         return new Response(JSON.stringify({ error: 'Failed to approve plastic type' }), {
           status: 500,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
@@ -164,7 +175,7 @@ const handler = async (req: Request): Promise<Response> => {
         }),
         {
           status: 200,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
     } else {
@@ -178,7 +189,7 @@ const handler = async (req: Request): Promise<Response> => {
         captureException(deleteError, { operation: 'reject-plastic-type', plasticId: body.plastic_id });
         return new Response(JSON.stringify({ error: 'Failed to reject plastic type' }), {
           status: 500,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
@@ -198,7 +209,7 @@ const handler = async (req: Request): Promise<Response> => {
         }),
         {
           status: 200,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
     }
@@ -206,7 +217,7 @@ const handler = async (req: Request): Promise<Response> => {
     captureException(error, { operation: 'approve-plastic-type', plasticId: body.plastic_id });
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 };
