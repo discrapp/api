@@ -278,6 +278,24 @@ Deno.test('postSlackMessage: reports error on network failure', async () => {
   assertEquals(mockCaptureExceptionCalled, true);
 });
 
+Deno.test('postSlackMessage: uses default captureException when not provided', async () => {
+  resetMocks();
+
+  // This will fail because bot token is not set, but it exercises the default captureException path
+  const result = await postSlackMessage(
+    { text: 'Test' },
+    {
+      botToken: undefined,
+      channelId: 'C123',
+      fetchFn: mockFetch,
+      // captureExceptionFn not provided - uses default
+    }
+  );
+
+  assertEquals(result.success, false);
+  // Default captureException was used (no error thrown)
+});
+
 // ============================================
 // updateSlackMessage tests
 // ============================================
@@ -468,4 +486,94 @@ Deno.test('notifyPlasticTypeRejected: updates message with rejection', async () 
   const payload = mockFetchPayload as { text: string; blocks: Array<{ type: string; text?: { text: string } }> };
   assertEquals(payload.text, '❌ Plastic type rejected: Innova - Test Plastic');
   assertEquals(payload.blocks[0].text?.text, '❌ Plastic Type Rejected');
+});
+
+Deno.test('notifyPlasticTypeRejected: works without rejectedBy email', async () => {
+  resetMocks();
+  mockFetchResponse = { ok: true };
+
+  const result = await notifyPlasticTypeRejected(
+    '1234567890.123456',
+    'Discraft',
+    'ESP',
+    undefined,
+    {
+      botToken: 'xoxb-test',
+      channelId: 'C123',
+      fetchFn: mockFetch,
+      captureExceptionFn: mockCaptureException,
+    }
+  );
+
+  assertEquals(result, true);
+
+  // Check that the context block shows "Rejected" without email
+  const payload = mockFetchPayload as { blocks: Array<{ type: string; elements?: Array<{ text: string }> }> };
+  const contextBlock = payload.blocks.find((b) => b.type === 'context');
+  assertEquals(contextBlock?.elements?.[0]?.text, 'Rejected');
+});
+
+Deno.test('updateSlackMessage: reports error on network failure', async () => {
+  resetMocks();
+
+  const throwingFetch = (): Promise<Response> => {
+    throw new Error('Network error');
+  };
+
+  const result = await updateSlackMessage(
+    '1234567890.123456',
+    { text: 'Updated' },
+    {
+      botToken: 'xoxb-test',
+      channelId: 'C123',
+      fetchFn: throwingFetch,
+      captureExceptionFn: mockCaptureException,
+    }
+  );
+
+  assertEquals(result, false);
+  assertEquals(mockCaptureExceptionCalled, true);
+  assertEquals((mockCaptureExceptionError as Error).message, 'Network error');
+  assertEquals(mockCaptureExceptionContext?.operation, 'slack-update-message');
+  assertEquals(mockCaptureExceptionContext?.reason, 'network_error');
+});
+
+Deno.test('updateSlackMessage: uses default captureException when not provided', async () => {
+  resetMocks();
+
+  // This will fail because credentials are not set, but it exercises the default path
+  const result = await updateSlackMessage(
+    '1234567890.123456',
+    { text: 'Updated' },
+    {
+      botToken: undefined,
+      channelId: 'C123',
+      fetchFn: mockFetch,
+      // captureExceptionFn not provided - uses default
+    }
+  );
+
+  assertEquals(result, false);
+  // Default captureException was used (no error thrown)
+});
+
+Deno.test('updateSlackMessage: falls back to env var when channelId not provided', async () => {
+  resetMocks();
+
+  // botToken provided but channelId not provided - exercises the Deno.env.get fallback
+  // Since SLACK_CHANNEL_ID is not set in test env, this will fail with missing credentials
+  const result = await updateSlackMessage(
+    '1234567890.123456',
+    { text: 'Updated' },
+    {
+      botToken: 'xoxb-test',
+      // channelId not provided - falls back to Deno.env.get('SLACK_CHANNEL_ID')
+      fetchFn: mockFetch,
+      captureExceptionFn: mockCaptureException,
+    }
+  );
+
+  assertEquals(result, false);
+  assertEquals(mockCaptureExceptionCalled, true);
+  assertEquals((mockCaptureExceptionError as Error).message, 'Slack credentials not configured for update');
 });
