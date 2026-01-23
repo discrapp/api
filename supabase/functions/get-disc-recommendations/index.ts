@@ -240,17 +240,162 @@ function generateAffiliateUrl(manufacturer: string, mold: string, affiliateId: s
   return baseUrl;
 }
 
-// Filter and prioritize catalog discs based on user's preferences
+// Speed ranges for disc categories
+const CATEGORY_SPEED_RANGES: Record<string, { min: number; max: number }> = {
+  'Distance Driver': { min: 11, max: 14 },
+  'Fairway Driver': { min: 7, max: 10 },
+  Midrange: { min: 4, max: 6 },
+  Putter: { min: 1, max: 3 },
+};
+
+// Build gap-based filter criteria from bag analysis
+interface GapFilter {
+  type: 'speed_gap' | 'stability_gap' | 'category_gap';
+  description: string;
+  speedMin?: number;
+  speedMax?: number;
+  stability?: 'understable' | 'stable' | 'overstable';
+}
+
+function identifyGapFilters(bagAnalysis: BagAnalysis): GapFilter[] {
+  const filters: GapFilter[] = [];
+
+  // Add filters for speed gaps
+  for (const gap of bagAnalysis.speed_coverage.gaps) {
+    filters.push({
+      type: 'speed_gap',
+      description: `Speed gap ${gap.from}-${gap.to}`,
+      speedMin: gap.from,
+      speedMax: gap.to,
+    });
+  }
+
+  // Add filters for missing stability in each category
+  const categories = ['Distance Driver', 'Fairway Driver', 'Midrange', 'Putter'];
+  for (const category of categories) {
+    const catStability = bagAnalysis.stability_by_category.find((s) => s.category === category);
+    const speedRange = CATEGORY_SPEED_RANGES[category];
+
+    if (!catStability) {
+      // Missing entire category - add all stabilities
+      filters.push({
+        type: 'category_gap',
+        description: `Missing ${category}`,
+        speedMin: speedRange.min,
+        speedMax: speedRange.max,
+      });
+    } else {
+      // Check for missing stabilities within category
+      if (catStability.understable === 0) {
+        filters.push({
+          type: 'stability_gap',
+          description: `No understable ${category}`,
+          speedMin: speedRange.min,
+          speedMax: speedRange.max,
+          stability: 'understable',
+        });
+      }
+      if (catStability.stable === 0) {
+        filters.push({
+          type: 'stability_gap',
+          description: `No stable ${category}`,
+          speedMin: speedRange.min,
+          speedMax: speedRange.max,
+          stability: 'stable',
+        });
+      }
+      if (catStability.overstable === 0) {
+        filters.push({
+          type: 'stability_gap',
+          description: `No overstable ${category}`,
+          speedMin: speedRange.min,
+          speedMax: speedRange.max,
+          stability: 'overstable',
+        });
+      }
+    }
+  }
+
+  return filters;
+}
+
+// Query catalog for discs that match gap filters
+// deno-lint-ignore no-explicit-any
+async function queryDiscsForGaps(
+  supabaseAdmin: any,
+  gapFilters: GapFilter[],
+  userBrands: string[]
+): Promise<CatalogDisc[]> {
+  const allMatchingDiscs: CatalogDisc[] = [];
+  const seenIds = new Set<string>();
+
+  // Query for each gap filter
+  for (const filter of gapFilters) {
+    let query = supabaseAdmin
+      .from('disc_catalog')
+      .select('id, manufacturer, mold, category, speed, glide, turn, fade, stability')
+      .eq('status', 'verified');
+
+    // Apply speed range filter
+    if (filter.speedMin !== undefined) {
+      query = query.gte('speed', filter.speedMin);
+    }
+    if (filter.speedMax !== undefined) {
+      query = query.lte('speed', filter.speedMax);
+    }
+
+    // Apply stability filter based on turn/fade values
+    if (filter.stability === 'understable') {
+      query = query.lte('turn', -2);
+    } else if (filter.stability === 'overstable') {
+      query = query.or('fade.gte.3,turn.gte.1');
+    } else if (filter.stability === 'stable') {
+      query = query.gt('turn', -2).lt('fade', 3);
+    }
+
+    const { data: discs } = await query.limit(50);
+
+    if (discs) {
+      for (const disc of discs as CatalogDisc[]) {
+        if (!seenIds.has(disc.id)) {
+          seenIds.add(disc.id);
+          allMatchingDiscs.push(disc);
+        }
+      }
+    }
+  }
+
+  // Prioritize user's preferred brands
+  const userBrandsLower = userBrands.map((b) => b.toLowerCase());
+  const popularBrandsLower = POPULAR_BRANDS.map((b) => b.toLowerCase());
+
+  return allMatchingDiscs.sort((a, b) => {
+    const aManufacturerLower = a.manufacturer.toLowerCase();
+    const bManufacturerLower = b.manufacturer.toLowerCase();
+
+    const aIsUserBrand = userBrandsLower.includes(aManufacturerLower);
+    const bIsUserBrand = userBrandsLower.includes(bManufacturerLower);
+    const aIsPopular = popularBrandsLower.includes(aManufacturerLower);
+    const bIsPopular = popularBrandsLower.includes(bManufacturerLower);
+
+    if (aIsUserBrand && !bIsUserBrand) return -1;
+    if (!aIsUserBrand && bIsUserBrand) return 1;
+    if (aIsPopular && !bIsPopular) return -1;
+    if (!aIsPopular && bIsPopular) return 1;
+
+    return a.manufacturer.localeCompare(b.manufacturer) || a.mold.localeCompare(b.mold);
+  });
+}
+
+// Legacy filter function (fallback if no gaps identified)
 function filterAndPrioritizeCatalog(
   catalogDiscs: CatalogDisc[],
   userBrands: string[],
   maxDiscs: number = 150
 ): CatalogDisc[] {
-  // Normalize brand names for comparison (case-insensitive)
   const userBrandsLower = userBrands.map((b) => b.toLowerCase());
   const popularBrandsLower = POPULAR_BRANDS.map((b) => b.toLowerCase());
 
-  // Sort discs: user's brands first, then popular brands, then others
   const sortedDiscs = [...catalogDiscs].sort((a, b) => {
     const aManufacturerLower = a.manufacturer.toLowerCase();
     const bManufacturerLower = b.manufacturer.toLowerCase();
@@ -260,15 +405,11 @@ function filterAndPrioritizeCatalog(
     const aIsPopular = popularBrandsLower.includes(aManufacturerLower);
     const bIsPopular = popularBrandsLower.includes(bManufacturerLower);
 
-    // User's brands come first
     if (aIsUserBrand && !bIsUserBrand) return -1;
     if (!aIsUserBrand && bIsUserBrand) return 1;
-
-    // Then popular brands
     if (aIsPopular && !bIsPopular) return -1;
     if (!aIsPopular && bIsPopular) return 1;
 
-    // Within same priority, sort by manufacturer then mold
     if (a.manufacturer !== b.manufacturer) {
       return a.manufacturer.localeCompare(b.manufacturer);
     }
@@ -462,34 +603,50 @@ const handler = async (req: Request): Promise<Response> => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-  // Fetch verified catalog discs
-  const { data: catalogDiscs, error: catalogError } = await supabaseAdmin
-    .from('disc_catalog')
-    .select('id, manufacturer, mold, category, speed, glide, turn, fade, stability')
-    .eq('status', 'verified')
-    .order('manufacturer')
-    .order('mold');
+  // Analyze bag first to identify gaps
+  const bagAnalysis = analyzeBag(userDiscs);
+  const topBrands = bagAnalysis.brand_preferences.slice(0, 5).map((b) => b.manufacturer);
 
-  if (catalogError) {
-    console.error('Failed to fetch disc catalog:', catalogError);
-    captureException(new Error('Failed to fetch disc catalog'), {
-      operation: 'get-disc-recommendations',
-      error: catalogError,
-    });
-    return new Response(JSON.stringify({ error: 'Failed to fetch disc catalog' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  // Identify gap filters from bag analysis
+  const gapFilters = identifyGapFilters(bagAnalysis);
+
+  // Fetch discs that match the identified gaps (smart filtering)
+  let catalogDiscs: CatalogDisc[] = [];
+  if (gapFilters.length > 0) {
+    // Query database for discs that match specific gaps
+    catalogDiscs = await queryDiscsForGaps(supabaseAdmin, gapFilters, topBrands);
+  }
+
+  // Fallback: if no gap-specific discs found, fetch general catalog
+  if (catalogDiscs.length === 0) {
+    const { data: fallbackDiscs, error: catalogError } = await supabaseAdmin
+      .from('disc_catalog')
+      .select('id, manufacturer, mold, category, speed, glide, turn, fade, stability')
+      .eq('status', 'verified')
+      .order('manufacturer')
+      .order('mold')
+      .limit(500);
+
+    if (catalogError) {
+      console.error('Failed to fetch disc catalog:', catalogError);
+      captureException(new Error('Failed to fetch disc catalog'), {
+        operation: 'get-disc-recommendations',
+        error: catalogError,
+      });
+      return new Response(JSON.stringify({ error: 'Failed to fetch disc catalog' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    catalogDiscs = filterAndPrioritizeCatalog(fallbackDiscs || [], topBrands, 200);
   }
 
   const startTime = Date.now();
 
   try {
-    // Analyze user's bag
-    const bagAnalysis = analyzeBag(userDiscs);
-
-    // Build Claude prompt
-    const prompt = buildClaudePrompt(bagAnalysis, catalogDiscs || [], count);
+    // Build Claude prompt (bagAnalysis already computed above)
+    const prompt = buildClaudePrompt(bagAnalysis, catalogDiscs, count);
 
     // Call Claude API
     const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
