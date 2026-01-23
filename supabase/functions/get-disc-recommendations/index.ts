@@ -92,8 +92,14 @@ interface ClaudeRecommendation {
   priority: number;
 }
 
+interface TradeInCandidate {
+  disc_id: string;
+  reason: string;
+}
+
 interface ClaudeResponse {
   recommendations: ClaudeRecommendation[];
+  trade_in_candidates: TradeInCandidate[];
   identified_gaps: string[];
   confidence: number;
 }
@@ -420,9 +426,23 @@ function filterAndPrioritizeCatalog(
 }
 
 // Build Claude prompt for recommendations
-function buildClaudePrompt(bagAnalysis: BagAnalysis, catalogDiscs: CatalogDisc[], count: number): string {
+function buildClaudePrompt(
+  bagAnalysis: BagAnalysis,
+  catalogDiscs: CatalogDisc[],
+  userDiscs: UserDisc[],
+  count: number
+): string {
   const topBrands = bagAnalysis.brand_preferences.slice(0, 5).map((b) => b.manufacturer);
   const topPlastics = bagAnalysis.plastic_preferences.slice(0, 3).map((p) => p.plastic);
+
+  // Build user's disc list for trade-in analysis
+  const userDiscList = userDiscs
+    .filter((d) => d.flight_numbers)
+    .map(
+      (d) =>
+        `- ${d.manufacturer || 'Unknown'} ${d.mold || d.name || 'Unknown'}: ${d.flight_numbers?.speed}/${d.flight_numbers?.glide}/${d.flight_numbers?.turn}/${d.flight_numbers?.fade} [ID: ${d.id}]`
+    )
+    .join('\n');
 
   const stabilityMatrix = bagAnalysis.stability_by_category
     .map((s) => `  ${s.category}: understable=${s.understable}, stable=${s.stable}, overstable=${s.overstable}`)
@@ -448,7 +468,10 @@ function buildClaudePrompt(bagAnalysis: BagAnalysis, catalogDiscs: CatalogDisc[]
   const primaryBrand = bagAnalysis.brand_preferences[0]?.manufacturer || null;
   const primaryBrandCount = bagAnalysis.brand_preferences[0]?.count || 0;
 
-  return `You are an expert disc golf equipment advisor. Analyze this user's bag and recommend ${count} disc(s) to fill gaps.
+  return `You are an expert disc golf equipment advisor. Analyze this user's bag, recommend ${count} disc(s) to fill gaps, and identify any redundant discs they could trade in.
+
+USER'S CURRENT DISCS:
+${userDiscList || '  No discs with flight numbers'}
 
 USER'S BAG ANALYSIS:
 - Total discs: ${bagAnalysis.total_discs}
@@ -471,15 +494,18 @@ Popular brands for variety: ${POPULAR_BRANDS.slice(0, 8).join(', ')}
 AVAILABLE DISCS TO RECOMMEND FROM:
 ${catalogList}
 
-CRITICAL INSTRUCTIONS (MUST FOLLOW IN THIS EXACT ORDER):
-1. **PRIMARY BRAND FIRST**: The user's PRIMARY brand (${primaryBrand || 'none'}) should be used for the MAJORITY of recommendations. If recommending ${count} disc(s):
-   - For 1 recommendation: Use the PRIMARY brand
-   - For 3 recommendations: At least 2 should be from the PRIMARY brand
-   - For 5 recommendations: At least 3 should be from the PRIMARY brand
-2. **VARIETY**: When recommending multiple discs, include SOME variety from the user's other preferred brands (not just all from one brand)
-3. **GAP FILLING**: Prioritize gaps in this order: (1) Missing category gaps, (2) Missing stability slots, (3) Speed gaps
-4. Each recommendation should fill a DIFFERENT gap
-5. Explain your brand choice in the reasoning (e.g., "Staying with your primary brand Innova..." or "Adding variety with Latitude 64...")
+CRITICAL INSTRUCTIONS:
+1. **RECOMMENDATIONS**: Recommend ${count} disc(s) to fill gaps
+   - PRIMARY BRAND FIRST: Use ${primaryBrand || 'user preferred brands'} for majority of recommendations
+   - Prioritize gaps: (1) Missing categories, (2) Missing stabilities, (3) Speed gaps
+   - Each recommendation should fill a DIFFERENT gap
+
+2. **TRADE-IN CANDIDATES**: Identify discs the user could trade in (0-3 max)
+   - Look for DUPLICATES: Multiple discs with very similar flight numbers (within ±1 on each stat)
+   - Look for REDUNDANCY: Discs that overlap significantly with others in the same slot
+   - Look for OUTLIERS: Discs that don't fit the user's preferred brands/style
+   - Only suggest trade-ins if genuinely redundant - don't suggest trading core bag discs
+   - If the bag is well-optimized, return empty trade_in_candidates array
 
 Return ONLY this JSON (no other text):
 {
@@ -488,9 +514,15 @@ Return ONLY this JSON (no other text):
       "catalog_id": "<uuid from catalog>",
       "manufacturer": "<string>",
       "mold": "<string>",
-      "reason": "<2-3 sentence explanation mentioning the brand choice and why this disc fills a gap>",
+      "reason": "<2-3 sentence explanation>",
       "gap_type": "speed_range|stability|category",
       "priority": <1 to ${count}>
+    }
+  ],
+  "trade_in_candidates": [
+    {
+      "disc_id": "<uuid from user's discs>",
+      "reason": "<why this disc is redundant or could be traded>"
     }
   ],
   "identified_gaps": ["<list of gaps found>"],
@@ -646,7 +678,7 @@ const handler = async (req: Request): Promise<Response> => {
 
   try {
     // Build Claude prompt (bagAnalysis already computed above)
-    const prompt = buildClaudePrompt(bagAnalysis, catalogDiscs, count);
+    const prompt = buildClaudePrompt(bagAnalysis, catalogDiscs, userDiscs, count);
 
     // Call Claude API
     const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
@@ -767,6 +799,24 @@ const handler = async (req: Request): Promise<Response> => {
       };
     });
 
+    // Build trade-in candidates with full disc details
+    const tradeInCandidates = (aiResponse.trade_in_candidates || []).map((candidate) => {
+      const userDisc = userDiscs.find((d) => d.id === candidate.disc_id);
+      return {
+        disc: userDisc
+          ? {
+              id: userDisc.id,
+              name: userDisc.name,
+              manufacturer: userDisc.manufacturer,
+              mold: userDisc.mold,
+              plastic: userDisc.plastic,
+              flight_numbers: userDisc.flight_numbers,
+            }
+          : { id: candidate.disc_id },
+        reason: candidate.reason,
+      };
+    });
+
     // Update bag_analysis with AI-identified gaps
     const finalBagAnalysis = {
       ...bagAnalysis,
@@ -796,6 +846,7 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({
         recommendations,
+        trade_in_candidates: tradeInCandidates,
         bag_analysis: finalBagAnalysis,
         confidence: aiResponse.confidence,
         processing_time_ms: processingTime,
