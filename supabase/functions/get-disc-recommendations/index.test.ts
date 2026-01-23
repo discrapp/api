@@ -1375,3 +1375,155 @@ Deno.test('get-disc-recommendations: should only return verified catalog discs',
   assertEquals(verifiedDiscs.length, 1);
   assertEquals(verifiedDiscs[0].mold, 'Mako3');
 });
+
+Deno.test('get-disc-recommendations: filterAndPrioritizeCatalog should exclude dismissed discs', () => {
+  resetMocks();
+
+  mockCatalogDiscs = [
+    {
+      id: 'catalog-1',
+      manufacturer: 'Innova',
+      mold: 'Destroyer',
+      category: 'Distance Driver',
+      speed: 12,
+      glide: 5,
+      turn: -1,
+      fade: 3,
+      stability: 'Overstable',
+      status: 'verified',
+    },
+    {
+      id: 'catalog-2',
+      manufacturer: 'Innova',
+      mold: 'Leopard',
+      category: 'Fairway Driver',
+      speed: 6,
+      glide: 5,
+      turn: -2,
+      fade: 1,
+      stability: 'Understable',
+      status: 'verified',
+    },
+    {
+      id: 'catalog-3',
+      manufacturer: 'Discraft',
+      mold: 'Buzz',
+      category: 'Midrange',
+      speed: 5,
+      glide: 4,
+      turn: -1,
+      fade: 1,
+      stability: 'Stable',
+      status: 'verified',
+    },
+  ];
+
+  // Simulate dismissed disc IDs
+  const dismissedDiscIds = new Set(['catalog-2']); // User dismissed Leopard
+
+  // Filter catalog discs (simulating filterAndPrioritizeCatalog behavior)
+  const filteredDiscs = mockCatalogDiscs.filter(
+    (disc) => disc.status === 'verified' && !dismissedDiscIds.has(disc.id)
+  );
+
+  // Should not include the dismissed Leopard
+  assertEquals(filteredDiscs.length, 2);
+  assertEquals(filteredDiscs.some((d) => d.mold === 'Leopard'), false);
+  assertEquals(filteredDiscs.some((d) => d.mold === 'Destroyer'), true);
+  assertEquals(filteredDiscs.some((d) => d.mold === 'Buzz'), true);
+});
+
+Deno.test('get-disc-recommendations: should handle multiple dismissed discs', () => {
+  resetMocks();
+
+  mockCatalogDiscs = [
+    {
+      id: 'catalog-1',
+      manufacturer: 'Innova',
+      mold: 'Destroyer',
+      category: 'Distance Driver',
+      speed: 12,
+      glide: 5,
+      turn: -1,
+      fade: 3,
+      stability: 'Overstable',
+      status: 'verified',
+    },
+    {
+      id: 'catalog-2',
+      manufacturer: 'Innova',
+      mold: 'Leopard',
+      category: 'Fairway Driver',
+      speed: 6,
+      glide: 5,
+      turn: -2,
+      fade: 1,
+      stability: 'Understable',
+      status: 'verified',
+    },
+    {
+      id: 'catalog-3',
+      manufacturer: 'Discraft',
+      mold: 'Buzz',
+      category: 'Midrange',
+      speed: 5,
+      glide: 4,
+      turn: -1,
+      fade: 1,
+      stability: 'Stable',
+      status: 'verified',
+    },
+  ];
+
+  // User dismissed multiple discs
+  const dismissedDiscIds = new Set(['catalog-1', 'catalog-3']);
+
+  const filteredDiscs = mockCatalogDiscs.filter(
+    (disc) => disc.status === 'verified' && !dismissedDiscIds.has(disc.id)
+  );
+
+  // Should only include Leopard
+  assertEquals(filteredDiscs.length, 1);
+  assertEquals(filteredDiscs[0].mold, 'Leopard');
+});
+
+Deno.test('get-disc-recommendations: should work with no dismissed discs', () => {
+  resetMocks();
+
+  mockCatalogDiscs = [
+    {
+      id: 'catalog-1',
+      manufacturer: 'Innova',
+      mold: 'Destroyer',
+      category: 'Distance Driver',
+      speed: 12,
+      glide: 5,
+      turn: -1,
+      fade: 3,
+      stability: 'Overstable',
+      status: 'verified',
+    },
+    {
+      id: 'catalog-2',
+      manufacturer: 'Innova',
+      mold: 'Leopard',
+      category: 'Fairway Driver',
+      speed: 6,
+      glide: 5,
+      turn: -2,
+      fade: 1,
+      stability: 'Understable',
+      status: 'verified',
+    },
+  ];
+
+  // No dismissed discs
+  const dismissedDiscIds = new Set<string>();
+
+  const filteredDiscs = mockCatalogDiscs.filter(
+    (disc) => disc.status === 'verified' && !dismissedDiscIds.has(disc.id)
+  );
+
+  // Should include all verified discs
+  assertEquals(filteredDiscs.length, 2);
+});

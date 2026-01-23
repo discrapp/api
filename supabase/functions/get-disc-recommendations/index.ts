@@ -330,7 +330,8 @@ function identifyGapFilters(bagAnalysis: BagAnalysis): GapFilter[] {
 async function queryDiscsForGaps(
   supabaseAdmin: any,
   gapFilters: GapFilter[],
-  userBrands: string[]
+  userBrands: string[],
+  dismissedDiscIds: Set<string> = new Set()
 ): Promise<CatalogDisc[]> {
   const allMatchingDiscs: CatalogDisc[] = [];
   const seenIds = new Set<string>();
@@ -363,6 +364,8 @@ async function queryDiscsForGaps(
 
     if (discs) {
       for (const disc of discs as CatalogDisc[]) {
+        // Skip dismissed discs
+        if (dismissedDiscIds.has(disc.id)) continue;
         if (!seenIds.has(disc.id)) {
           seenIds.add(disc.id);
           allMatchingDiscs.push(disc);
@@ -397,12 +400,16 @@ async function queryDiscsForGaps(
 function filterAndPrioritizeCatalog(
   catalogDiscs: CatalogDisc[],
   userBrands: string[],
-  maxDiscs: number = 150
+  maxDiscs: number = 150,
+  dismissedDiscIds: Set<string> = new Set()
 ): CatalogDisc[] {
+  // Filter out dismissed discs first
+  const filteredDiscs = catalogDiscs.filter((disc) => !dismissedDiscIds.has(disc.id));
+
   const userBrandsLower = userBrands.map((b) => b.toLowerCase());
   const popularBrandsLower = POPULAR_BRANDS.map((b) => b.toLowerCase());
 
-  const sortedDiscs = [...catalogDiscs].sort((a, b) => {
+  const sortedDiscs = [...filteredDiscs].sort((a, b) => {
     const aManufacturerLower = a.manufacturer.toLowerCase();
     const bManufacturerLower = b.manufacturer.toLowerCase();
 
@@ -635,6 +642,14 @@ const handler = async (req: Request): Promise<Response> => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
+  // Fetch user's dismissed disc recommendations
+  const { data: dismissedData } = await supabase
+    .from('dismissed_disc_recommendations')
+    .select('disc_catalog_id')
+    .eq('user_id', user.id);
+
+  const dismissedDiscIds = new Set((dismissedData || []).map((d) => d.disc_catalog_id));
+
   // Analyze bag first to identify gaps
   const bagAnalysis = analyzeBag(userDiscs);
   const topBrands = bagAnalysis.brand_preferences.slice(0, 5).map((b) => b.manufacturer);
@@ -646,7 +661,7 @@ const handler = async (req: Request): Promise<Response> => {
   let catalogDiscs: CatalogDisc[] = [];
   if (gapFilters.length > 0) {
     // Query database for discs that match specific gaps
-    catalogDiscs = await queryDiscsForGaps(supabaseAdmin, gapFilters, topBrands);
+    catalogDiscs = await queryDiscsForGaps(supabaseAdmin, gapFilters, topBrands, dismissedDiscIds);
   }
 
   // Fallback: if no gap-specific discs found, fetch general catalog
@@ -671,7 +686,7 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
-    catalogDiscs = filterAndPrioritizeCatalog(fallbackDiscs || [], topBrands, 200);
+    catalogDiscs = filterAndPrioritizeCatalog(fallbackDiscs || [], topBrands, 200, dismissedDiscIds);
   }
 
   const startTime = Date.now();
