@@ -195,16 +195,26 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+# Email templates - stored in git for version control
+[auth.email.template.recovery]
+subject = "Reset Your Discr™ Password"
+content_path = "./supabase/templates/reset-password.html"
 
-# Uncomment to customize notification email template
-# [auth.email.notification.password_changed]
-# enabled = true
-# subject = "Your password has been changed"
-# content_path = "./templates/password_changed_notification.html"
+[auth.email.template.invite]
+subject = "You're Invited to Discr™"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.confirmation]
+subject = "Confirm Your Discr™ Account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.email_change]
+subject = "Confirm Your Email Change"
+content_path = "./supabase/templates/email-change.html"
+
+[auth.email.template.magic_link]
+subject = "Your Discr™ Login Link"
+content_path = "./supabase/templates/magic-link.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
