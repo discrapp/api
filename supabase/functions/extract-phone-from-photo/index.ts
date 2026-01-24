@@ -83,6 +83,13 @@ PHONE NUMBER CONFIDENCE:
 - 0.6-0.7: 7-8 digits visible
 - Below 0.5: Don't include
 
+COMMONLY CONFUSED HANDWRITTEN DIGITS - Look carefully:
+- 3 vs 5: Check if top is curved (3) or flat with corner (5)
+- 6 vs 9: Check loop position (6 has loop at bottom, 9 at top)
+- 8 vs 0: Check if there are two loops (8) or one (0)
+- 1 vs 7: Check for serif/base (1) or horizontal top stroke (7)
+- 4 vs 9: Check if closed (9) or open at top (4)
+
 IMPORTANT:
 - Normalize US phone numbers to E.164 format (+1XXXXXXXXXX)
 - If no phone number visible, return empty array
