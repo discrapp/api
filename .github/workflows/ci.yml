@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
@@ -43,7 +43,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
@@ -103,7 +103,7 @@ jobs:
       - name: Restore main branch coverage from cache
         if: github.event_name == 'pull_request'
         id: cache-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: base-coverage/coverage-summary.json
           key: coverage-main-latest
@@ -139,14 +139,14 @@ jobs:
 
       - name: Cache main branch coverage
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: base-coverage/coverage-summary.json
           key: coverage-main-${{ github.sha }}
 
       - name: Update latest main coverage cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: base-coverage/coverage-summary.json
           key: coverage-main-latest
@@ -156,12 +156,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -195,7 +195,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
@@ -217,7 +217,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
@@ -239,7 +239,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 2
 

@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
@@ -41,7 +41,7 @@ jobs:
 
       - name: Upload preview image
         id: upload-image
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -114,7 +114,7 @@ jobs:
             core.setOutput('image_url', imageUrl);
 
       - name: Comment on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
