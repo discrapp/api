@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { PDFDocument, rgb, StandardFonts } from 'https://esm.sh/pdf-lib@1.17.1';
-import QRCode from 'https://esm.sh/qrcode@1.5.3';
+import * as QRCode from 'https://esm.sh/qrcode@1.5.3';
 import { LOGO_BASE64 } from './logo-data.ts';
 import { withSentry } from '../_shared/with-sentry.ts';
 
