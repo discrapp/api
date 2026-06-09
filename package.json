@@ -26,11 +26,11 @@
   "author": "Discr Team",
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^10.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^24.0.0",
     "drizzle-kit": "^0.31.0",
-    "eslint": "^9.39.1",
+    "eslint": "^10.0.0",
     "jest": "^29.7.0",
     "prettier": "^3.7.3",
     "ts-jest": "^29.2.5",
